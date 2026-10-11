@@ -31,9 +31,33 @@ The updater downloads `latest.json` and release assets over HTTPS **without** a 
 - **Public repo** — in-app updates work for everyone.
 - **Private repo** — CI can still publish releases, but **installed apps cannot download updates** until the repository is public (or you mirror `latest.json` + `.tar.gz` on a public HTTPS host). Plan to switch [Webisso/webiterm](https://github.com/Webisso/webiterm) to public before distributing builds outside your machine.
 
-### 3. Apple code signing (recommended)
+### 3. macOS “damaged” DMG / Gatekeeper
 
-For fewer Gatekeeper warnings, configure Apple signing and notarization in CI (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`). Unsigned builds still run for local testing with the usual macOS security prompts.
+CI builds **ad-hoc sign** the `.app` (`signingIdentity: "-"` in `tauri.conf.json`) so the bundle is sealed correctly. Without a **Developer ID** certificate, macOS may still show *“is damaged”* or block the app when the download has quarantine (`com.apple.quarantine`). Fixes:
+
+```bash
+xattr -cr /Applications/WebiTerm.app
+```
+
+For normal double-click install from the browser, add Apple secrets below so CI **signs and notarizes** the app.
+
+Export **Developer ID Application** certificate as `.p12`, then:
+
+```bash
+base64 -i YourCert.p12 | pbcopy   # paste into GitHub secret APPLE_CERTIFICATE
+```
+
+| Secret | Value |
+|--------|--------|
+| `APPLE_CERTIFICATE` | Base64-encoded `.p12` |
+| `APPLE_CERTIFICATE_PASSWORD` | Export password for the `.p12` |
+| `KEYCHAIN_PASSWORD` | Any strong random string (CI keychain only) |
+| `APPLE_SIGNING_IDENTITY` | Optional; CI auto-detects from cert if omitted |
+| `APPLE_ID` | Apple ID email (notarization) |
+| `APPLE_PASSWORD` | App-specific password |
+| `APPLE_TEAM_ID` | Team ID from developer.apple.com |
+
+When `APPLE_CERTIFICATE` is set, the release workflow imports the cert and notarizes via `tauri-action`.
 
 ## Ship a version
 
