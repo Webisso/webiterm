@@ -1,0 +1,30 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Environment and local databases
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Tauri generated schemas
+webiterm/src-tauri/gen/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
+*.log
