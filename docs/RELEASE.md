@@ -57,7 +57,7 @@ base64 -i YourCert.p12 | pbcopy   # paste into GitHub secret APPLE_CERTIFICATE
 | `APPLE_PASSWORD` | App-specific password |
 | `APPLE_TEAM_ID` | Team ID from developer.apple.com |
 
-When `APPLE_CERTIFICATE` is set, the release workflow imports the cert and notarizes via `tauri-action`.
+When you add the Apple secrets, also add them to the `env` block of the **Build and release** step in `.github/workflows/release-macos.yml` (see comments there). Empty `APPLE_CERTIFICATE` in env breaks the build.
 
 ## Ship a version
 
