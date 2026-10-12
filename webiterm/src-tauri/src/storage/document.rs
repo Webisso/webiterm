@@ -8,10 +8,10 @@ use crate::domain::ConnectionSummary;
 use crate::error::AppError;
 
 use super::connection_groups::ConnectionGroup;
+use super::folder_notes::FolderNoteDetail;
 use super::sftp_editor::SftpEditorPrefs;
 use super::sftp_favorites::SftpFavorite;
 use super::ssh_command_favorites::SshCommandFavorite;
-use super::folder_notes::FolderNoteDetail;
 use super::task_boards::TaskBoardDetail;
 
 pub const DOCUMENT_KIND: &str = "webiterm";

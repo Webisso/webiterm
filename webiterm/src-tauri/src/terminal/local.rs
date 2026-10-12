@@ -103,7 +103,11 @@ impl LocalTerminalManager {
     }
 }
 
-fn run_local_session_io(app: AppHandle, event_name: String, commands: mpsc::Receiver<LocalIoCommand>) {
+fn run_local_session_io(
+    app: AppHandle,
+    event_name: String,
+    commands: mpsc::Receiver<LocalIoCommand>,
+) {
     let pty_system = native_pty_system();
     let pair = match pty_system.openpty(PtySize {
         rows: 24,
@@ -124,11 +128,7 @@ fn run_local_session_io(app: AppHandle, event_name: String, commands: mpsc::Rece
 
     let shell = default_shell();
     let mut cmd = CommandBuilder::new(&shell);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    cmd.env("CLICOLOR", "1");
-    cmd.env("CLICOLOR_FORCE", "1");
-    cmd.env("FORCE_COLOR", "1");
+    configure_local_shell(&mut cmd, &shell);
 
     let mut child = match pair.slave.spawn_command(cmd) {
         Ok(child) => child,
@@ -202,6 +202,28 @@ fn run_local_session_io(app: AppHandle, event_name: String, commands: mpsc::Rece
     let _ = child.wait();
     let _ = read_done_rx.recv_timeout(std::time::Duration::from_millis(250));
     emit_terminal_output(&app, &event_name, "\r\n[session closed]\r\n".to_string());
+}
+
+fn configure_local_shell(cmd: &mut CommandBuilder, shell: &str) {
+    for (key, value) in local_shell_env() {
+        cmd.env(key, value);
+    }
+    if shell.ends_with("zsh") {
+        cmd.arg("-il");
+    } else if shell.ends_with("bash") {
+        cmd.arg("-il");
+    }
+}
+
+fn local_shell_env() -> [(&'static str, &'static str); 6] {
+    [
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("CLICOLOR", "1"),
+        ("CLICOLOR_FORCE", "1"),
+        ("FORCE_COLOR", "1"),
+        ("LANG", "en_US.UTF-8"),
+    ]
 }
 
 fn default_shell() -> String {

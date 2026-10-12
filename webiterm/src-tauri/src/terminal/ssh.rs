@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -11,10 +11,10 @@ use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::domain::ConnectionSummary;
-use crate::terminal::emit_terminal_output;
 use crate::domain::connection::{AuthMethod, ConnectionKind};
 use crate::error::AppError;
 use crate::storage::build_mysql_url;
+use crate::terminal::emit_terminal_output;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,13 +35,13 @@ struct SshSession {
 }
 
 pub struct SshTerminalManager {
-    sessions: Mutex<HashMap<String, SshSession>>,
+    sessions: Arc<Mutex<HashMap<String, SshSession>>>,
 }
 
 impl SshTerminalManager {
     pub fn new() -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -67,6 +67,14 @@ impl SshTerminalManager {
             connection_id: connection.id.clone(),
             title: connection.name.clone(),
         };
+
+        {
+            let sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+            if sessions.contains_key(&session_id) {
+                return Ok(info);
+            }
+        }
+
         let host = connection.host.clone();
         let port = ssh_port_for(&connection);
         let username = connection.username.clone();
@@ -75,7 +83,7 @@ impl SshTerminalManager {
         let startup_command = connection.startup_command.clone();
         let secret = secret.unwrap_or_default();
         let event_name = format!("terminal-output-{}", session_id);
-        let (stream, session) = tokio::time::timeout(
+        let (mut channel, session) = tokio::time::timeout(
             Duration::from_secs(45),
             tokio::task::spawn_blocking(move || {
                 open_ssh_channel(
@@ -94,6 +102,11 @@ impl SshTerminalManager {
         let (command_tx, command_rx) = mpsc::channel();
         {
             let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+            if sessions.contains_key(&session_id) {
+                let _ = channel.close();
+                let _ = session.disconnect(None, "superseded", None);
+                return Ok(info);
+            }
             sessions.insert(
                 session_id.clone(),
                 SshSession {
@@ -101,11 +114,14 @@ impl SshTerminalManager {
                 },
             );
         }
+        let sessions = Arc::clone(&self.sessions);
         std::thread::spawn(move || {
             run_ssh_session_io(
                 app,
                 event_name,
-                stream,
+                session_id,
+                sessions,
+                channel,
                 session,
                 command_rx,
                 startup_command,
@@ -151,6 +167,8 @@ impl SshTerminalManager {
 fn run_ssh_session_io(
     app: AppHandle,
     event_name: String,
+    session_id: String,
+    sessions: Arc<Mutex<HashMap<String, SshSession>>>,
     mut channel: ssh2::Channel,
     session: Session,
     commands: mpsc::Receiver<SshIoCommand>,
@@ -158,6 +176,8 @@ fn run_ssh_session_io(
 ) {
     session.set_blocking(false);
     let mut buffer = [0_u8; 4096];
+    let mut pending_write: Vec<u8> = Vec::new();
+    let mut shutdown = false;
 
     if let Some(command) = startup_command
         .as_deref()
@@ -167,64 +187,131 @@ fn run_ssh_session_io(
         std::thread::sleep(Duration::from_millis(250));
         let mut payload = command.to_string();
         payload.push('\n');
-        if !apply_ssh_command(&mut channel, SshIoCommand::Write(payload.into_bytes())) {
-            emit_terminal_output(&app, &event_name, "\r\n[session closed]\r\n".to_string());
-            return;
-        }
+        pending_write.extend(payload.into_bytes());
     }
 
-    loop {
-        if !drain_ssh_commands(&mut channel, &commands) {
+    while !shutdown {
+        flush_ssh_pending_write(&mut channel, &mut pending_write);
+
+        if matches!(
+            drain_ssh_commands(&mut channel, &commands, &mut pending_write),
+            DrainResult::Shutdown
+        ) {
+            break;
+        }
+
+        if channel.eof() {
             break;
         }
 
         match channel.read(&mut buffer) {
-            Ok(0) => break,
+            Ok(0) => {
+                if channel.eof() {
+                    break;
+                }
+                wait_for_ssh_io(
+                    &session,
+                    &commands,
+                    &mut channel,
+                    &mut pending_write,
+                    &mut shutdown,
+                );
+            }
             Ok(count) => {
                 let payload = String::from_utf8_lossy(&buffer[..count]).to_string();
                 emit_terminal_output(&app, &event_name, payload);
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                wait_for_ssh_io(&session, &commands, &mut channel);
+                wait_for_ssh_io(
+                    &session,
+                    &commands,
+                    &mut channel,
+                    &mut pending_write,
+                    &mut shutdown,
+                );
             }
-            Err(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
         }
     }
 
     let _ = channel.close();
     let _ = session.disconnect(None, "closed", None);
+    {
+        let mut map = sessions.lock().unwrap_or_else(|p| p.into_inner());
+        map.remove(&session_id);
+    }
     emit_terminal_output(&app, &event_name, "\r\n[session closed]\r\n".to_string());
+}
+
+enum DrainResult {
+    Continue,
+    Shutdown,
 }
 
 fn drain_ssh_commands(
     channel: &mut ssh2::Channel,
     commands: &mpsc::Receiver<SshIoCommand>,
-) -> bool {
+    pending_write: &mut Vec<u8>,
+) -> DrainResult {
     while let Ok(command) = commands.try_recv() {
-        if !apply_ssh_command(channel, command) {
-            return false;
+        match command {
+            SshIoCommand::Shutdown => return DrainResult::Shutdown,
+            SshIoCommand::Write(data) => {
+                pending_write.extend(data);
+            }
+            SshIoCommand::Resize { cols, rows } => {
+                if cols >= 2 && rows >= 2 {
+                    let _ = channel.request_pty_size(cols, rows, None, None);
+                }
+            }
         }
     }
-    true
+    DrainResult::Continue
 }
 
-fn apply_ssh_command(channel: &mut ssh2::Channel, command: SshIoCommand) -> bool {
-    match command {
-        SshIoCommand::Shutdown => false,
-        SshIoCommand::Write(data) => channel.write_all(&data).is_ok() && channel.flush().is_ok(),
-        SshIoCommand::Resize { cols, rows } => {
-            channel.request_pty_size(cols, rows, None, None).is_ok()
+fn flush_ssh_pending_write(channel: &mut ssh2::Channel, pending: &mut Vec<u8>) {
+    while !pending.is_empty() {
+        match channel.write(pending) {
+            Ok(0) => break,
+            Ok(written) => {
+                let end = written.min(pending.len());
+                pending.drain(0..end);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
         }
     }
+}
+
+fn ssh_shell_env() -> [(&'static str, &'static str); 5] {
+    [
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("CLICOLOR", "1"),
+        ("CLICOLOR_FORCE", "1"),
+        ("FORCE_COLOR", "1"),
+    ]
 }
 
 fn wait_for_ssh_io(
     session: &Session,
     commands: &mpsc::Receiver<SshIoCommand>,
     channel: &mut ssh2::Channel,
+    pending_write: &mut Vec<u8>,
+    shutdown: &mut bool,
 ) {
+    let _ = session.keepalive_send();
+    flush_ssh_pending_write(channel, pending_write);
     for _ in 0..40 {
-        if !drain_ssh_commands(channel, commands) {
+        if matches!(
+            drain_ssh_commands(channel, commands, pending_write),
+            DrainResult::Shutdown
+        ) {
+            *shutdown = true;
             return;
         }
         if session.block_directions() != ssh2::BlockDirections::None {
@@ -260,6 +347,8 @@ pub(crate) fn connect_ssh_session(
     session
         .handshake()
         .map_err(|_| AppError::ConnectionFailed("SSH handshake failed.".to_string()))?;
+    // Keep NAT/firewalls from dropping idle SSH sessions (interval in seconds).
+    session.set_keepalive(true, 30);
     ssh_authenticate(&session, username, auth_method, secret, private_key_path)?;
     Ok(session)
 }
@@ -279,6 +368,9 @@ fn open_ssh_channel(
     channel
         .request_pty("xterm-256color", None, Some((80, 24, 0, 0)))
         .map_err(|_| AppError::ConnectionFailed("Could not request SSH PTY.".to_string()))?;
+    for (key, value) in ssh_shell_env() {
+        let _ = channel.setenv(key, value);
+    }
     channel
         .shell()
         .map_err(|_| AppError::ConnectionFailed("Could not start SSH shell.".to_string()))?;

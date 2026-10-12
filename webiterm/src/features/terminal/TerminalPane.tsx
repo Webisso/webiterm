@@ -14,6 +14,10 @@ import {
   sshWrite,
 } from "../../lib/connections";
 import { applyTerminalInput } from "./terminalInput";
+import {
+  cancelDeferredTerminalClose,
+  deferTerminalClose,
+} from "./terminalSessionClose";
 import { webitermTerminalOptions } from "./terminalTheme";
 import "./terminalChrome.css";
 
@@ -70,6 +74,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         return;
       }
 
+      cancelDeferredTerminalClose(terminalSessionId);
+
       let cancelled = false;
       let unlisten: (() => void) | null = null;
       let inputEnabled = false;
@@ -124,6 +130,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         if (!inputEnabled || cancelled) {
           return;
         }
+        if (term.cols < 2 || term.rows < 2) {
+          return;
+        }
         void resizeTerminal(term.cols, term.rows);
       });
       resizeObserver.observe(container);
@@ -164,7 +173,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           inputEnabled = true;
           inputEnabledRef.current = true;
           fit.fit();
-          void resizeTerminal(term.cols, term.rows);
+          if (term.cols >= 2 && term.rows >= 2) {
+            void resizeTerminal(term.cols, term.rows);
+          }
           focusTerminal();
         } catch (error) {
           if (cancelled) {
@@ -186,7 +197,10 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         resizeObserver.disconnect();
         dataDisposable.dispose();
         unlisten?.();
-        void closeTerminal();
+        const sessionId = terminalSessionId;
+        deferTerminalClose(sessionId, () => {
+          void closeTerminal();
+        });
         term.dispose();
       };
     }, [connectionId, mode, terminalSessionId]);

@@ -2,7 +2,9 @@ use tauri::{AppHandle, State};
 
 use crate::error::{AppError, CommandError, command_error};
 use crate::storage::{self, Database};
-use crate::terminal::{LocalShellSessionInfo, LocalTerminalManager, SshTerminalManager, TerminalSessionInfo};
+use crate::terminal::{
+    LocalShellSessionInfo, LocalTerminalManager, SshTerminalManager, TerminalSessionInfo,
+};
 
 #[tauri::command]
 pub async fn ssh_open(

@@ -66,5 +66,6 @@ export const webitermTerminalOptions = {
   drawBoldTextInBrightColors: true,
   minimumContrastRatio: 1,
   customGlyphs: true,
+  allowTransparency: false,
   theme: webitermTerminalTheme,
 };

@@ -16,13 +16,13 @@ pub use connection_groups::{
     create_connection_group_cmd, delete_connection_group_cmd, list_connection_groups_cmd,
     update_connection_group_cmd,
 };
-pub use folder_notes::{
-    create_folder_note_cmd, delete_folder_note_cmd, delete_folder_notes_for_group_cmd,
-    get_folder_note_cmd, list_folder_notes_cmd, rename_folder_note_cmd, update_folder_note_cmd,
-};
 pub use connections::{
     assign_connection_group_cmd, create_connection, delete_connection, list_connections,
     test_connection, update_connection,
+};
+pub use folder_notes::{
+    create_folder_note_cmd, delete_folder_note_cmd, delete_folder_notes_for_group_cmd,
+    get_folder_note_cmd, list_folder_notes_cmd, rename_folder_note_cmd, update_folder_note_cmd,
 };
 pub use ftp::{
     ftp_change_dir, ftp_close, ftp_delete, ftp_download, ftp_goto, ftp_list, ftp_open,

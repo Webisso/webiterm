@@ -56,13 +56,20 @@ pub fn get_folder_note(db: &Database, id: &str) -> Result<FolderNoteDetail, AppE
     })?
 }
 
-pub fn create_folder_note(db: &Database, input: NewFolderNote) -> Result<FolderNoteDetail, AppError> {
+pub fn create_folder_note(
+    db: &Database,
+    input: NewFolderNote,
+) -> Result<FolderNoteDetail, AppError> {
     let title = input.title.trim();
     if title.is_empty() {
         return Err(AppError::InvalidInput);
     }
     db.update(|document| {
-        if !document.groups.iter().any(|group| group.id == input.group_id) {
+        if !document
+            .groups
+            .iter()
+            .any(|group| group.id == input.group_id)
+        {
             return Err(AppError::NotFound);
         }
         let detail = FolderNoteDetail {
@@ -101,7 +108,11 @@ pub fn update_folder_note(
     })
 }
 
-pub fn rename_folder_note(db: &Database, id: &str, name: &str) -> Result<FolderNoteSummary, AppError> {
+pub fn rename_folder_note(
+    db: &Database,
+    id: &str,
+    name: &str,
+) -> Result<FolderNoteSummary, AppError> {
     let title = name.trim();
     if title.is_empty() {
         return Err(AppError::InvalidInput);
@@ -131,9 +142,7 @@ pub fn delete_folder_note(db: &Database, id: &str) -> Result<(), AppError> {
 
 pub fn delete_folder_notes_for_group(db: &Database, group_id: &str) -> Result<(), AppError> {
     db.update(|document| {
-        document
-            .notes
-            .retain(|item| item.note.group_id != group_id);
+        document.notes.retain(|item| item.note.group_id != group_id);
         Ok(())
     })
 }

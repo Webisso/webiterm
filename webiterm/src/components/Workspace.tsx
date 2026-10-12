@@ -32,6 +32,10 @@ export function Workspace({
 }: WorkspaceProps) {
   const active = sessions.find((session) => session.id === activeSessionId) ?? sessions[0] ?? null;
   const noteSessions = sessions.filter((session) => session.kind === "note");
+  const terminalSessions = sessions.filter(
+    (session): session is Extract<WorkspaceSession, { kind: "ssh" } | { kind: "local" }> =>
+      (session.kind === "ssh" || session.kind === "local") && Boolean(session.terminalSessionId),
+  );
 
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-canvas" aria-label="Workspace">
@@ -78,34 +82,49 @@ export function Workspace({
               </button>
             </div>
           </div>
-        ) : active.kind === "local" && active.terminalSessionId ? (
-          <LocalTerminalWorkspace
-            key={active.terminalSessionId}
-            terminalSessionId={active.terminalSessionId}
-            onNewLocalTerminal={onCreateLocalTerminal}
-          />
-        ) : active.kind === "ssh" && active.terminalSessionId ? (
-          <SshTerminalWorkspace
-            key={active.terminalSessionId}
-            connectionId={active.connectionId}
-            terminalSessionId={active.terminalSessionId}
-          />
-        ) : active.kind === "ftp" && active.ftpSessionId ? (
+        ) : null}
+        {terminalSessions.map((session) => {
+          const visible = active?.id === session.id;
+          const terminalSessionId = session.terminalSessionId!;
+          return (
+            <div
+              key={terminalSessionId}
+              className={`absolute inset-0 flex min-h-0 flex-col ${visible ? "" : "hidden"}`}
+              aria-hidden={!visible}
+            >
+              {session.kind === "local" ? (
+                <LocalTerminalWorkspace
+                  terminalSessionId={terminalSessionId}
+                  onNewLocalTerminal={onCreateLocalTerminal}
+                />
+              ) : session.kind === "ssh" ? (
+                <SshTerminalWorkspace
+                  connectionId={session.connectionId}
+                  terminalSessionId={terminalSessionId}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        {active && active.kind === "ftp" && active.ftpSessionId ? (
           <FtpPane
             key={active.ftpSessionId}
             connectionId={active.connectionId}
             ftpSessionId={active.ftpSessionId}
           />
-        ) : active.kind === "mysql" ? (
+        ) : active?.kind === "mysql" ? (
           <MysqlPane connectionId={active.connectionId} />
-        ) : active.kind === "board" ? (
+        ) : active?.kind === "board" ? (
           <TaskBoardPane
             key={active.boardId}
             boardId={active.boardId}
             folderName={groups.find((group) => group.id === active.groupId)?.name ?? "Folder"}
             accent={groups.find((group) => group.id === active.groupId)?.color ?? "#f59e0b"}
           />
-        ) : active.kind === "note" ? null : (
+        ) : active?.kind === "note" ||
+          active?.kind === "ssh" ||
+          active?.kind === "local" ||
+          !active ? null : (
           <div className="flex h-full items-center justify-center px-8">
             <EmptyState
               align="center"
