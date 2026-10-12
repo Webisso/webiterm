@@ -141,8 +141,15 @@ export type SftpFavoriteInput = {
   shortcutKey?: string;
 };
 
+export type LocalShellSessionInfo = {
+  id: string;
+  title: string;
+};
+
 export type WorkspaceSession =
   | { id: string; kind: "ssh"; connectionId: string; title: string; terminalSessionId?: string }
   | { id: string; kind: "ftp"; connectionId: string; title: string; ftpSessionId?: string }
   | { id: string; kind: "mysql"; connectionId: string; title: string }
-  | { id: string; kind: "board"; boardId: string; groupId: string; title: string };
+  | { id: string; kind: "local"; title: string; terminalSessionId?: string }
+  | { id: string; kind: "board"; boardId: string; groupId: string; title: string }
+  | { id: string; kind: "note"; noteId: string; groupId: string; title: string };

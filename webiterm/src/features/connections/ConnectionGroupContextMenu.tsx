@@ -7,6 +7,7 @@ type ConnectionGroupContextMenuProps = {
   y: number;
   onNewSubfolder: () => void;
   onNewBoard: () => void;
+  onNewNote: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -17,6 +18,7 @@ export function ConnectionGroupContextMenu({
   y,
   onNewSubfolder,
   onNewBoard,
+  onNewNote,
   onEdit,
   onDelete,
   onClose,
@@ -51,6 +53,7 @@ export function ConnectionGroupContextMenu({
     >
       <MenuItem onClick={onNewSubfolder}>Add subfolder inside…</MenuItem>
       <MenuItem onClick={onNewBoard}>New board…</MenuItem>
+      <MenuItem onClick={onNewNote}>New note…</MenuItem>
       <MenuItem onClick={onEdit}>Edit folder</MenuItem>
       <div className="my-1 border-t border-line" />
       <MenuItem tone="danger" onClick={onDelete}>Delete folder</MenuItem>

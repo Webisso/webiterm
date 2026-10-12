@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
+import { AppLogo } from "../../components/AppLogo";
 import { getAppStatus, isDesktopRuntime } from "../../lib/ipc";
 
 const PROJECT_WEBSITE = "https://github.com/Webisso/webiterm";
@@ -61,10 +62,13 @@ export function AboutModal({ open, onClose, onCheckForUpdates }: AboutModalProps
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-8 pt-8 pb-6">
-          <h2 id="about-title" className="text-[18px] font-medium text-ink">
-            WebiTerm
-          </h2>
-          <p className="mt-2 text-[13px] text-faint">Version {version}</p>
+          <div className="flex flex-col items-center text-center">
+            <AppLogo size={72} className="shadow-panel" />
+            <h2 id="about-title" className="mt-4 text-[18px] font-medium text-ink">
+              WebiTerm
+            </h2>
+          </div>
+          <p className="mt-2 text-center text-[13px] text-faint">Version {version}</p>
           <p className="mt-5 text-[13px] leading-6 text-muted">
             SSH, SFTP, MySQL, and boards on this Mac. Profiles, passwords, folders, and tasks stay
             in one local JSON file.

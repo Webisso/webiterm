@@ -51,7 +51,7 @@ Keyboard shortcuts in the shell:
 ## Troubleshooting
 
 - `rustc: command not found`: add `$HOME/.cargo/bin` to `PATH`, then retry. The toolchain file selects 1.99.0.
-- Tauri icon or bundle errors: regenerate icons with `node scripts/generate-app-icon.mjs` and `npx tauri icon ../assets/app-icon.png` from `webiterm/`.
+- Tauri icon or bundle errors: from `webiterm/`, run `node scripts/sync-logo.mjs` (uses `logo.png` at the repository root).
 - Port 1420 in use: stop the other Vite process. The dev server uses a strict port so Tauri can find it.
 - `cargo test` for the desktop crate compiles the WebKit bindings. The first build is slow.
 - If the JSON file is corrupt, the app refuses to open it rather than replacing it. Move the file aside only when the data can be discarded.

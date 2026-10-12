@@ -1,0 +1,21 @@
+.terminal-pane {
+  background: #101114;
+}
+
+.terminal-pane .xterm {
+  height: 100%;
+  padding: 6px 8px 8px;
+}
+
+.terminal-pane .xterm-viewport {
+  background-color: transparent !important;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+.terminal-pane .xterm-screen {
+  -webkit-font-smoothing: antialiased;
+}
+
+.terminal-pane .xterm-focus .xterm-cursor-layer .xterm-cursor {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}

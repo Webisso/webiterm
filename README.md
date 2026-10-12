@@ -1,5 +1,9 @@
 # WebiTerm
 
+<p align="center">
+  <img src="logo.png" alt="WebiTerm" width="128" height="128" />
+</p>
+
 WebiTerm is a local macOS workstation for SSH, SFTP, MySQL, and folder boards. All application data lives in one JSON file on this device. There is no account, vault, or cloud service.
 
 ## Layout

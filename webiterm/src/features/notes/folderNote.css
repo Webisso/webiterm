@@ -1,0 +1,122 @@
+.folder-note-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.folder-note-body:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-faint);
+  pointer-events: none;
+}
+
+.folder-note-body ul {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+  list-style: disc;
+}
+
+.folder-note-body li {
+  margin: 0.25em 0;
+}
+
+.folder-note-body b,
+.folder-note-body strong {
+  font-weight: 600;
+}
+
+.folder-note-body ul.folder-note-checklist {
+  list-style: none;
+  margin: 0.65em 0;
+  padding: 0;
+}
+
+.folder-note-body ul.folder-note-checklist > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.3em 0;
+  padding: 0;
+  list-style: none;
+}
+
+.folder-note-body .folder-note-check-toggle {
+  margin-top: 0.35em;
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1.5px solid var(--color-muted);
+  cursor: pointer;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.folder-note-body ul.folder-note-checklist > li[data-checked="1"] .folder-note-check-toggle {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: inset 0 0 0 2px #14161b;
+}
+
+.folder-note-body .folder-note-check-text {
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+
+.folder-note-body ul.folder-note-checklist > li[data-checked="1"] .folder-note-check-text {
+  color: var(--color-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-faint) 70%, transparent);
+}
+
+.note-format-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+}
+
+.note-format-divider {
+  width: 1px;
+  height: 1.25rem;
+  margin: 0 4px;
+  background: var(--color-line);
+}
+
+.note-format-btn {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  color: var(--color-muted);
+  background: transparent;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.note-format-btn:hover {
+  color: var(--color-ink);
+  background: var(--color-raised);
+}
+
+.note-format-btn-active {
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-raised));
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.note-format-icon {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}

@@ -1,6 +1,7 @@
 mod connection_groups;
 mod connections;
 mod document;
+mod folder_notes;
 mod legacy;
 mod settings;
 mod sftp_editor;
@@ -17,6 +18,11 @@ use crate::error::AppError;
 pub use connection_groups::{
     ConnectionGroup, ConnectionGroupInput, ConnectionGroupUpdate, create_connection_group,
     delete_connection_group, list_connection_groups, update_connection_group,
+};
+pub use folder_notes::{
+    FolderNoteDetail, FolderNoteSummary, FolderNoteUpdate, NewFolderNote, create_folder_note,
+    delete_folder_note, delete_folder_notes_for_group, get_folder_note, list_folder_notes,
+    rename_folder_note, update_folder_note,
 };
 pub use connections::{
     assign_connection_group, build_mysql_url, create_connection, delete_connection, get_connection,

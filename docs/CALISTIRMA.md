@@ -54,6 +54,20 @@ Bu dosyada profiller, düz metin şifreler, klasörler, favoriler ve panolar dur
 
 Durdurmak: terminalde `Ctrl+C`.
 
+### Logo / Dock ikonu
+
+`npm run tauri dev` ile çalıştırmak doğru yöntem. Dock’taki ikon, `src-tauri/icons/` içindeki dosyalardan **Rust derlemesi sırasında** gömülür; sadece Vite’ı yenilemek veya `Finished … in 0.6s` gibi çok hızlı bir derleme eski ikonu bırakabilir.
+
+Kökteki `logo.png` değiştiyse veya Dock’ta eski simge görünüyorsa:
+
+```bash
+cd webiterm
+npm run sync-logo
+npm run tauri dev
+```
+
+Hâlâ eski ikon görünürse uygulamayı Dock’tan çıkarıp yeniden açın; gerekirse `killall Dock` (Dock yeniden yüklenir). Kurulu `.app` için `npm run tauri build` ile yeniden paketleyin.
+
 **Önemli:** Uygulamayı Cursor sandbox içindeki derlenmiş binary yolundan (`/var/folders/.../webiterm`) doğrudan çalıştırmayın. Her zaman `npm run tauri dev` kullanın.
 
 ### Klavye kısayolları

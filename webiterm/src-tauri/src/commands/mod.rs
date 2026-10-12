@@ -1,5 +1,6 @@
 mod connection_groups;
 mod connections;
+mod folder_notes;
 mod ftp;
 mod local_data;
 mod mysql;
@@ -14,6 +15,10 @@ mod terminal;
 pub use connection_groups::{
     create_connection_group_cmd, delete_connection_group_cmd, list_connection_groups_cmd,
     update_connection_group_cmd,
+};
+pub use folder_notes::{
+    create_folder_note_cmd, delete_folder_note_cmd, delete_folder_notes_for_group_cmd,
+    get_folder_note_cmd, list_folder_notes_cmd, rename_folder_note_cmd, update_folder_note_cmd,
 };
 pub use connections::{
     assign_connection_group_cmd, create_connection, delete_connection, list_connections,
@@ -42,4 +47,7 @@ pub use task_boards::{
     delete_task_comment_cmd, delete_task_image_cmd, get_task_board_cmd, list_task_boards_cmd,
     move_task_cmd, rename_task_board_cmd, update_task_cmd,
 };
-pub use terminal::{ssh_close, ssh_open, ssh_resize, ssh_write};
+pub use terminal::{
+    local_shell_close, local_shell_open, local_shell_resize, local_shell_write, ssh_close,
+    ssh_open, ssh_resize, ssh_write,
+};

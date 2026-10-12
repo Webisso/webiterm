@@ -1,5 +1,6 @@
 import type { Update } from "@tauri-apps/plugin-updater";
 import { useState } from "react";
+import { AppLogo } from "../../components/AppLogo";
 import type { UpdateInstallProgress } from "../../lib/appUpdater";
 import { installAppUpdate } from "../../lib/appUpdater";
 
@@ -44,7 +45,10 @@ export function UpdateAvailableModal({ update, currentVersion, onClose }: Update
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-6 pt-6 pb-4">
-          <h2 id="update-title" className="text-[16px] font-medium text-ink">Update available</h2>
+          <div className="flex items-center gap-3">
+            <AppLogo size={40} />
+            <h2 id="update-title" className="text-[16px] font-medium text-ink">Update available</h2>
+          </div>
           <p className="mt-2 text-[13px] text-muted">
             WebiTerm {currentVersion} → {update.version}
           </p>

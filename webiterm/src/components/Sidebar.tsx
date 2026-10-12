@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { ConnectionExplorer } from "../features/connections/ConnectionExplorer";
 import type { ConnectionOpenMode } from "../features/connections/ConnectionContextMenu";
 import type { TaskBoardSummary } from "../types/boards";
+import type { FolderNoteSummary } from "../types/notes";
 import type { ConnectionGroup, ConnectionSummary } from "../types/connections";
 
 type SidebarProps = {
@@ -11,6 +12,7 @@ type SidebarProps = {
   connections: ConnectionSummary[];
   groups: ConnectionGroup[];
   boards: TaskBoardSummary[];
+  notes: FolderNoteSummary[];
   selectedId: string | null;
   onNewGroup: (parentId?: string) => void;
   onSelect: (connection: ConnectionSummary) => void;
@@ -26,6 +28,10 @@ type SidebarProps = {
   onNewBoard: (groupId: string) => void;
   onRenameBoard: (board: TaskBoardSummary) => void;
   onDeleteBoard: (board: TaskBoardSummary) => void;
+  onOpenNote: (note: FolderNoteSummary) => void;
+  onNewNote: (groupId: string) => void;
+  onRenameNote: (note: FolderNoteSummary) => void;
+  onDeleteNote: (note: FolderNoteSummary) => void;
 };
 
 export function Sidebar({
@@ -50,6 +56,11 @@ export function Sidebar({
   onNewBoard,
   onRenameBoard,
   onDeleteBoard,
+  notes,
+  onOpenNote,
+  onNewNote,
+  onRenameNote,
+  onDeleteNote,
 }: SidebarProps) {
   return (
     <aside className="flex w-[272px] shrink-0 flex-col border-r border-line bg-sidebar">
@@ -99,6 +110,7 @@ export function Sidebar({
           connections={connections}
           groups={groups}
           boards={boards}
+          notes={notes}
           selectedId={selectedId}
           onNewGroup={onNewGroup}
           onEditGroup={onEditGroup}
@@ -113,6 +125,10 @@ export function Sidebar({
           onNewBoard={onNewBoard}
           onRenameBoard={onRenameBoard}
           onDeleteBoard={onDeleteBoard}
+          onOpenNote={onOpenNote}
+          onNewNote={onNewNote}
+          onRenameNote={onRenameNote}
+          onDeleteNote={onDeleteNote}
         />
       </div>
     </aside>

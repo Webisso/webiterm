@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppLogo } from "../components/AppLogo";
 import { CommandPalette } from "../components/CommandPalette";
 import { Inspector } from "../components/Inspector";
 import { Kbd } from "../components/Kbd";
@@ -20,10 +21,19 @@ import {
   listTaskBoards,
   renameTaskBoard,
 } from "../lib/boards";
+import {
+  createFolderNote,
+  deleteFolderNote,
+  deleteFolderNotesForGroup,
+  listFolderNotes,
+  renameFolderNote,
+} from "../lib/notes";
 import { exportLocalData, importLocalData } from "../lib/connections";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { CommandItem } from "../types/desktop";
 import type { TaskBoardSummary } from "../types/boards";
+import type { FolderNoteSummary } from "../types/notes";
+import { flushNoteSaver } from "../features/notes/noteSaveRegistry";
 import type {
   ConnectionGroup,
   ConnectionInput,
@@ -80,9 +90,15 @@ export function AppShell({
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [boards, setBoards] = useState<TaskBoardSummary[]>([]);
+  const [notes, setNotes] = useState<FolderNoteSummary[]>([]);
   const [boardModal, setBoardModal] = useState<
     | { mode: "create"; groupId: string }
     | { mode: "rename"; board: TaskBoardSummary }
+    | null
+  >(null);
+  const [noteModal, setNoteModal] = useState<
+    | { mode: "create"; groupId: string }
+    | { mode: "rename"; note: FolderNoteSummary }
     | null
   >(null);
 
@@ -106,6 +122,21 @@ export function AppShell({
   useEffect(() => {
     void refreshBoards();
   }, [refreshBoards]);
+
+  const refreshNotes = useCallback(async () => {
+    if (!ready) {
+      return;
+    }
+    try {
+      setNotes(await listFolderNotes());
+    } catch (error) {
+      showAlert(normalizeIpcError(error), { title: "Notes", tone: "danger" });
+    }
+  }, [ready, showAlert]);
+
+  useEffect(() => {
+    void refreshNotes();
+  }, [refreshNotes]);
 
   const commands = useMemo<CommandItem[]>(
     () => [
@@ -231,8 +262,16 @@ export function AppShell({
     }
   }
 
+  const flushActiveNote = useCallback(async () => {
+    const current = sessions.find((session) => session.id === activeSessionId);
+    if (current?.kind === "note") {
+      await flushNoteSaver(current.noteId);
+    }
+  }, [activeSessionId, sessions]);
+
   async function handleOpen(connection: ConnectionSummary, mode: ConnectionOpenMode) {
     try {
+      await flushActiveNote();
       const openSsh = mode === "ssh" || (mode === "default" && connection.kind === "ssh");
       const openFtp = mode === "ftp" || (mode === "default" && connection.kind === "ftp");
       if (openSsh) {
@@ -294,6 +333,19 @@ export function AppShell({
     return existing > 0 ? `${base} (${existing + 1})` : base;
   }
 
+  const openLocalTerminal = useCallback(async () => {
+    await flushActiveNote();
+    const terminalSessionId = crypto.randomUUID();
+    const session: WorkspaceSession = {
+      id: crypto.randomUUID(),
+      kind: "local",
+      title: "Local",
+      terminalSessionId,
+    };
+    setSessions((current) => [...current, session]);
+    setActiveSessionId(session.id);
+  }, [flushActiveNote]);
+
   async function handleTest(connection: ConnectionSummary) {
     try {
       const result = await runTest(connection.id);
@@ -317,7 +369,13 @@ export function AppShell({
         setSelectedId(null);
       }
       setSessions((current) =>
-        current.filter((session) => session.kind === "board" || session.connectionId !== connection.id),
+        current.filter(
+          (session) =>
+            session.kind === "board" ||
+            session.kind === "note" ||
+            session.kind === "local" ||
+            session.connectionId !== connection.id,
+        ),
       );
       showAlert("Connection deleted.", { title: "Deleted", tone: "info" });
     } catch (error) {
@@ -347,7 +405,42 @@ export function AppShell({
     }
   }
 
-  function openBoard(board: TaskBoardSummary) {
+  async function openNote(note: FolderNoteSummary) {
+    await flushActiveNote();
+    const existing = sessions.find(
+      (session) => session.kind === "note" && session.noteId === note.id,
+    );
+    if (existing) {
+      setActiveSessionId(existing.id);
+      return;
+    }
+    const session: WorkspaceSession = {
+      id: crypto.randomUUID(),
+      kind: "note",
+      noteId: note.id,
+      groupId: note.groupId,
+      title: note.title,
+    };
+    setSessions((current) => [...current, session]);
+    setActiveSessionId(session.id);
+  }
+
+  const handleNoteSaved = useCallback((note: FolderNoteSummary) => {
+    setNotes((current) => {
+      const next = current.map((item) => (item.id === note.id ? note : item));
+      return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.title.localeCompare(b.title));
+    });
+    setSessions((current) =>
+      current.map((session) =>
+        session.kind === "note" && session.noteId === note.id
+          ? { ...session, title: note.title }
+          : session,
+      ),
+    );
+  }, []);
+
+  async function openBoard(board: TaskBoardSummary) {
+    await flushActiveNote();
     const existing = sessions.find(
       (session) => session.kind === "board" && session.boardId === board.id,
     );
@@ -376,10 +469,34 @@ export function AppShell({
     } catch (error) {
       showAlert(normalizeIpcError(error), { title: "Boards", tone: "warning" });
     }
+    try {
+      await deleteFolderNotesForGroup(group.id);
+    } catch (error) {
+      showAlert(normalizeIpcError(error), { title: "Notes", tone: "warning" });
+    }
     setBoards((current) => current.filter((board) => board.groupId !== group.id));
+    setNotes((current) => current.filter((note) => note.groupId !== group.id));
     setSessions((current) =>
-      current.filter((session) => session.kind !== "board" || session.groupId !== group.id),
+      current.filter(
+        (session) =>
+          (session.kind !== "board" && session.kind !== "note") || session.groupId !== group.id,
+      ),
     );
+  }
+
+  async function handleDeleteNote(note: FolderNoteSummary) {
+    if (!window.confirm(`Delete note “${note.title}”?`)) {
+      return;
+    }
+    try {
+      await deleteFolderNote(note.id);
+      setNotes((current) => current.filter((item) => item.id !== note.id));
+      setSessions((current) =>
+        current.filter((session) => session.kind !== "note" || session.noteId !== note.id),
+      );
+    } catch (error) {
+      showAlert(normalizeIpcError(error), { title: "Notes", tone: "danger" });
+    }
   }
 
   async function handleDeleteBoard(board: TaskBoardSummary) {
@@ -397,15 +514,32 @@ export function AppShell({
     }
   }
 
-  function closeSession(id: string) {
-    setSessions((current) => {
-      const next = current.filter((session) => session.id !== id);
-      if (activeSessionId === id) {
-        setActiveSessionId(next[0]?.id ?? null);
+  const selectSession = useCallback(
+    async (id: string) => {
+      if (id !== activeSessionId) {
+        await flushActiveNote();
       }
-      return next;
-    });
-  }
+      setActiveSessionId(id);
+    },
+    [activeSessionId, flushActiveNote],
+  );
+
+  const closeSession = useCallback(
+    async (id: string) => {
+      const closing = sessions.find((session) => session.id === id);
+      if (closing?.kind === "note") {
+        await flushNoteSaver(closing.noteId);
+      }
+      setSessions((current) => {
+        const next = current.filter((session) => session.id !== id);
+        if (activeSessionId === id) {
+          setActiveSessionId(next[0]?.id ?? null);
+        }
+        return next;
+      });
+    },
+    [activeSessionId, sessions],
+  );
 
   return (
     <div className="flex h-full flex-col bg-canvas text-ink">
@@ -442,6 +576,7 @@ export function AppShell({
               connections={connections}
               groups={groups}
               boards={boards}
+              notes={notes}
               selectedId={selectedId}
               onSelect={(connection) => setSelectedId(connection.id)}
               onOpen={(connection, mode) => void handleOpen(connection, mode)}
@@ -474,20 +609,29 @@ export function AppShell({
               onDeleteBoard={(board) => {
                 void handleDeleteBoard(board);
               }}
+              onOpenNote={openNote}
+              onNewNote={(groupId) => setNoteModal({ mode: "create", groupId })}
+              onRenameNote={(note) => setNoteModal({ mode: "rename", note })}
+              onDeleteNote={(note) => {
+                void handleDeleteNote(note);
+              }}
             />
             <Workspace
               sessions={sessions}
               activeSessionId={activeSessionId}
               connections={connections}
               groups={groups}
-              onSelectSession={setActiveSessionId}
-              onCloseSession={closeSession}
+              onSelectSession={(id) => void selectSession(id)}
+              onCloseSession={(id) => void closeSession(id)}
+              onCreateLocalTerminal={openLocalTerminal}
+              onNoteSaved={handleNoteSaved}
             />
             <Inspector collapsed={collapsed} state={state} onRetry={onRetry} />
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
-            {state.kind === "loading" ? "Loading…" : "Desktop runtime is not ready."}
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[13px] text-muted">
+            <AppLogo size={64} className="opacity-90" />
+            <p>{state.kind === "loading" ? "Loading…" : "Desktop runtime is not ready."}</p>
           </div>
         )}
       </div>
@@ -544,6 +688,38 @@ export function AppShell({
             setGroupModalOpen(false);
             setEditingGroup(null);
             setGroupParentId(null);
+          }}
+        />
+      ) : null}
+      {noteModal ? (
+        <BoardNameModal
+          title={noteModal.mode === "create" ? "New note" : "Rename note"}
+          initialName={noteModal.mode === "rename" ? noteModal.note.title : ""}
+          onCancel={() => setNoteModal(null)}
+          onSave={async (name) => {
+            if (noteModal.mode === "create") {
+              const created = await createFolderNote(noteModal.groupId, name);
+              setNotes((current) =>
+                [created.note, ...current].sort(
+                  (a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.title.localeCompare(b.title),
+                ),
+              );
+              setNoteModal(null);
+              openNote(created.note);
+              return;
+            }
+            const renamed = await renameFolderNote(noteModal.note.id, name);
+            setNotes((current) =>
+              current.map((item) => (item.id === renamed.id ? renamed : item)),
+            );
+            setSessions((current) =>
+              current.map((session) =>
+                session.kind === "note" && session.noteId === renamed.id
+                  ? { ...session, title: renamed.title }
+                  : session,
+              ),
+            );
+            setNoteModal(null);
           }}
         />
       ) : null}

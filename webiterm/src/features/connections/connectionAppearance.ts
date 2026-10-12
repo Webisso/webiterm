@@ -5,7 +5,7 @@ import type {
   WorkspaceSession,
 } from "../../types/connections";
 
-export type SessionProtocolKind = Exclude<WorkspaceSession["kind"], "board">;
+export type SessionProtocolKind = Exclude<WorkspaceSession["kind"], "board" | "note">;
 
 const KIND_ACCENT_HEX: Record<ConnectionKind, string> = {
   ssh: "#8b5cf6",
@@ -34,6 +34,9 @@ export function sessionProtocolLabel(kind: SessionProtocolKind): string {
   if (kind === "ftp") {
     return "SFTP";
   }
+  if (kind === "local") {
+    return "Local";
+  }
   return "SQL";
 }
 
@@ -44,6 +47,9 @@ export function sessionProtocolAccent(kind: SessionProtocolKind): string {
   if (kind === "ftp") {
     return KIND_ACCENT_HEX.ftp;
   }
+  if (kind === "local") {
+    return "#a8b4c4";
+  }
   return KIND_ACCENT_HEX.mysql;
 }
 
@@ -53,6 +59,9 @@ export function sessionProtocolBadgeClass(kind: SessionProtocolKind): string {
   }
   if (kind === "ftp") {
     return "bg-sky-500/20 text-sky-300";
+  }
+  if (kind === "local") {
+    return "bg-slate-500/25 text-slate-300";
   }
   return "bg-emerald-500/20 text-emerald-300";
 }
@@ -91,6 +100,14 @@ export function sessionDisplayName(
 ): string {
   if (session.kind === "board") {
     return session.title;
+  }
+  if (session.kind === "note") {
+    return session.title;
+  }
+  if (session.kind === "local") {
+    const locals = allSessions.filter((item) => item.kind === "local");
+    const index = locals.findIndex((item) => item.id === session.id);
+    return index <= 0 ? "Local" : `Local (${index + 1})`;
   }
   const base = connection?.name ?? session.title;
   const siblings = allSessions.filter(

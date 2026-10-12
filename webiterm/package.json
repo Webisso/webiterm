@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "sync-logo": "node scripts/sync-logo.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

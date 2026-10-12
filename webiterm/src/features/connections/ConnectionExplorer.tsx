@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { TaskBoardSummary } from "../../types/boards";
+import type { FolderNoteSummary } from "../../types/notes";
 import type { ConnectionGroup, ConnectionSummary } from "../../types/connections";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { EmptyState } from "../../components/EmptyState";
@@ -41,6 +42,7 @@ type ConnectionExplorerProps = {
   connections: ConnectionSummary[];
   groups: ConnectionGroup[];
   boards: TaskBoardSummary[];
+  notes: FolderNoteSummary[];
   selectedId: string | null;
   onSelect: (connection: ConnectionSummary) => void;
   onOpen: (connection: ConnectionSummary, mode: ConnectionOpenMode) => void;
@@ -55,6 +57,10 @@ type ConnectionExplorerProps = {
   onNewBoard: (groupId: string) => void;
   onRenameBoard: (board: TaskBoardSummary) => void;
   onDeleteBoard: (board: TaskBoardSummary) => void;
+  onOpenNote: (note: FolderNoteSummary) => void;
+  onNewNote: (groupId: string) => void;
+  onRenameNote: (note: FolderNoteSummary) => void;
+  onDeleteNote: (note: FolderNoteSummary) => void;
 };
 
 export function ConnectionExplorer({
@@ -62,6 +68,7 @@ export function ConnectionExplorer({
   connections,
   groups,
   boards,
+  notes,
   selectedId,
   onSelect,
   onOpen,
@@ -76,6 +83,10 @@ export function ConnectionExplorer({
   onNewBoard,
   onRenameBoard,
   onDeleteBoard,
+  onOpenNote,
+  onNewNote,
+  onRenameNote,
+  onDeleteNote,
 }: ConnectionExplorerProps) {
   const trimmed = query.trim();
   const [connectionMenu, setConnectionMenu] = useState<{
@@ -90,6 +101,11 @@ export function ConnectionExplorer({
   } | null>(null);
   const [boardMenu, setBoardMenu] = useState<{
     board: TaskBoardSummary;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [noteMenu, setNoteMenu] = useState<{
+    note: FolderNoteSummary;
     x: number;
     y: number;
   } | null>(null);
@@ -164,8 +180,8 @@ export function ConnectionExplorer({
   }, []);
 
   const tree = useMemo(
-    () => buildConnectionTree(groups, connections, boards),
-    [groups, connections, boards],
+    () => buildConnectionTree(groups, connections, boards, notes),
+    [groups, connections, boards, notes],
   );
 
   const visibleRows = useMemo(
@@ -230,6 +246,21 @@ export function ConnectionExplorer({
                 }}
               />
             ))}
+          {notes
+            .filter((note) => note.title.toLowerCase().includes(trimmed.toLowerCase()))
+            .map((note) => (
+              <NoteRow
+                key={note.id}
+                note={note}
+                depth={0}
+                groupHint={groupPathLabel(note.groupId, groups)}
+                onOpen={onOpenNote}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setNoteMenu({ note, x: event.clientX, y: event.clientY });
+                }}
+              />
+            ))}
         </ul>
         {connectionMenu ? (
           <ConnectionContextMenu
@@ -279,6 +310,25 @@ export function ConnectionExplorer({
             onClose={() => setBoardMenu(null)}
           />
         ) : null}
+        {noteMenu ? (
+          <NoteMenu
+            x={noteMenu.x}
+            y={noteMenu.y}
+            onOpen={() => {
+              onOpenNote(noteMenu.note);
+              setNoteMenu(null);
+            }}
+            onRename={() => {
+              onRenameNote(noteMenu.note);
+              setNoteMenu(null);
+            }}
+            onDelete={() => {
+              onDeleteNote(noteMenu.note);
+              setNoteMenu(null);
+            }}
+            onClose={() => setNoteMenu(null)}
+          />
+        ) : null}
         {pendingMove ? (
           <MoveConfirmModal
             pending={pendingMove}
@@ -300,7 +350,8 @@ export function ConnectionExplorer({
           if (row.kind === "group") {
             const node = row.node;
             const isCollapsed = collapsed.has(node.id);
-            const count = node.connections.length + node.children.length + node.boards.length;
+            const count =
+              node.connections.length + node.children.length + node.boards.length + node.notes.length;
             const paddingLeft = treePadding(row.depth);
             const autoExpandPending =
               Boolean(draggingConnectionId) &&
@@ -354,6 +405,20 @@ export function ConnectionExplorer({
                 onContextMenu={(event) => {
                   event.preventDefault();
                   setBoardMenu({ board: row.board, x: event.clientX, y: event.clientY });
+                }}
+              />
+            );
+          }
+          if (row.kind === "note") {
+            return (
+              <NoteRow
+                key={row.note.id}
+                note={row.note}
+                depth={row.depth}
+                onOpen={onOpenNote}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setNoteMenu({ note: row.note, x: event.clientX, y: event.clientY });
                 }}
               />
             );
@@ -474,6 +539,17 @@ export function ConnectionExplorer({
             setGroupMenu(null);
             onNewBoard(groupId);
           }}
+          onNewNote={() => {
+            const groupId = groupMenu.group.id;
+            setCollapsed((prev) => {
+              const next = new Set(prev);
+              next.delete(groupId);
+              localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]));
+              return next;
+            });
+            setGroupMenu(null);
+            onNewNote(groupId);
+          }}
           onEdit={() => {
             setGroupMenu(null);
             onEditGroup(groupMenu.group);
@@ -502,6 +578,25 @@ export function ConnectionExplorer({
             setBoardMenu(null);
           }}
           onClose={() => setBoardMenu(null)}
+        />
+      ) : null}
+      {noteMenu ? (
+        <NoteMenu
+          x={noteMenu.x}
+          y={noteMenu.y}
+          onOpen={() => {
+            onOpenNote(noteMenu.note);
+            setNoteMenu(null);
+          }}
+          onRename={() => {
+            onRenameNote(noteMenu.note);
+            setNoteMenu(null);
+          }}
+          onDelete={() => {
+            onDeleteNote(noteMenu.note);
+            setNoteMenu(null);
+          }}
+          onClose={() => setNoteMenu(null)}
         />
       ) : null}
       {pendingMove ? (
@@ -647,6 +742,93 @@ function BoardRow({
         {groupHint ? <span className="truncate text-[10px] text-faint">{groupHint}</span> : null}
       </button>
     </li>
+  );
+}
+
+function NoteRow({
+  note,
+  depth,
+  groupHint,
+  onOpen,
+  onContextMenu,
+}: {
+  note: FolderNoteSummary;
+  depth: number;
+  groupHint?: string | null;
+  onOpen: (note: FolderNoteSummary) => void;
+  onContextMenu: (event: ReactMouseEvent) => void;
+}) {
+  return (
+    <li role="treeitem">
+      <button
+        type="button"
+        style={{ paddingLeft: treePadding(depth) }}
+        onClick={() => onOpen(note)}
+        onDoubleClick={() => onOpen(note)}
+        onContextMenu={onContextMenu}
+        className="flex w-full items-center gap-2 rounded-md py-1 pr-2 text-left hover:bg-raised/60"
+      >
+        <span className="inline-flex h-4 items-center rounded bg-yellow-500/20 px-1 text-[9px] font-semibold text-yellow-200">
+          Note
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{note.title}</span>
+        {groupHint ? <span className="truncate text-[10px] text-faint">{groupHint}</span> : null}
+      </button>
+    </li>
+  );
+}
+
+function NoteMenu({
+  x,
+  y,
+  onOpen,
+  onRename,
+  onDelete,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  onOpen: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        onClose();
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 min-w-[160px] rounded-md border border-line bg-surface py-1 shadow-panel"
+      style={{ left: x, top: y }}
+      role="menu"
+    >
+      <button type="button" className="block w-full px-3 py-1.5 text-left text-[13px] text-ink hover:bg-raised/80" onClick={onOpen}>
+        Open
+      </button>
+      <button type="button" className="block w-full px-3 py-1.5 text-left text-[13px] text-ink hover:bg-raised/80" onClick={onRename}>
+        Rename
+      </button>
+      <button type="button" className="block w-full px-3 py-1.5 text-left text-[13px] text-danger hover:bg-raised/80" onClick={onDelete}>
+        Delete
+      </button>
+    </div>
   );
 }
 

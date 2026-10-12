@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use serde::Serialize;
 use ssh2::Session;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::domain::ConnectionSummary;
+use crate::terminal::emit_terminal_output;
 use crate::domain::connection::{AuthMethod, ConnectionKind};
 use crate::error::AppError;
 use crate::storage::build_mysql_url;
@@ -371,14 +372,6 @@ fn ensure_ssh_authenticated(session: &Session) -> Result<(), AppError> {
             "SSH authentication did not complete.".to_string(),
         ))
     }
-}
-
-fn emit_terminal_output(app: &AppHandle, event_name: &str, payload: String) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit(event_name, payload);
-        return;
-    }
-    let _ = app.emit(event_name, payload);
 }
 
 fn expand_home_path(path: &str) -> std::path::PathBuf {

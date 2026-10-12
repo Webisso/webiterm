@@ -11,6 +11,7 @@ use super::connection_groups::ConnectionGroup;
 use super::sftp_editor::SftpEditorPrefs;
 use super::sftp_favorites::SftpFavorite;
 use super::ssh_command_favorites::SshCommandFavorite;
+use super::folder_notes::FolderNoteDetail;
 use super::task_boards::TaskBoardDetail;
 
 pub const DOCUMENT_KIND: &str = "webiterm";
@@ -46,6 +47,8 @@ pub struct LocalDocument {
     pub sftp_editor: SftpEditorPrefs,
     #[serde(default)]
     pub boards: Vec<TaskBoardDetail>,
+    #[serde(default)]
+    pub notes: Vec<FolderNoteDetail>,
 }
 
 fn default_true() -> bool {
@@ -65,6 +68,7 @@ impl Default for LocalDocument {
             ssh_command_favorites: Vec::new(),
             sftp_editor: SftpEditorPrefs::default(),
             boards: Vec::new(),
+            notes: Vec::new(),
         }
     }
 }

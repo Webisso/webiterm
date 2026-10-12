@@ -76,6 +76,7 @@ export function SshTerminalWorkspace({
         <div className="min-h-0 flex-1">
           <TerminalPane
             ref={terminalRef}
+            mode="ssh"
             connectionId={connectionId}
             terminalSessionId={terminalSessionId}
             onLastCommand={setLastCommand}

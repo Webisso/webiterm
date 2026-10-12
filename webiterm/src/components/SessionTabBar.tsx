@@ -47,19 +47,28 @@ export function SessionTabBar({
       {sessions.map((session) => {
         const selected = session.id === active?.id;
         const isBoard = session.kind === "board";
-        const connection = isBoard
+        const isNote = session.kind === "note";
+        const isLocal = session.kind === "local";
+        const connection = isBoard || isNote || isLocal
           ? undefined
           : connections.find((item) => item.id === session.connectionId);
-        const folder = isBoard ? groups.find((item) => item.id === session.groupId) : undefined;
+        const folder =
+          isBoard || isNote ? groups.find((item) => item.id === session.groupId) : undefined;
         const accent = isBoard
           ? (folder?.color ?? "#f59e0b")
-          : resolveSessionTabAccent(connection, groups, session.kind);
+          : isNote
+            ? (folder?.color ?? "#facc15")
+            : isLocal
+              ? resolveSessionTabAccent(undefined, groups, "local")
+              : resolveSessionTabAccent(connection, groups, session.kind);
         const name = sessionDisplayName(session, connection, sessions);
-        const protocol = isBoard ? "Board" : sessionProtocolLabel(session.kind);
+        const protocol = isBoard ? "Board" : isNote ? "Note" : sessionProtocolLabel(session.kind);
         const badgeClass = isBoard
           ? "bg-amber-500/20 text-amber-200"
-          : sessionProtocolBadgeClass(session.kind);
-        const group = isBoard
+          : isNote
+            ? "bg-yellow-500/20 text-yellow-200"
+            : sessionProtocolBadgeClass(session.kind);
+        const group = isBoard || isNote
           ? folder
           : connection?.groupId
             ? groups.find((item) => item.id === connection.groupId)

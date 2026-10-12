@@ -3,8 +3,19 @@ import { Terminal } from "@xterm/xterm";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { normalizeIpcError } from "../../lib/ipc";
-import { sshClose, sshOpen, sshResize, sshWrite } from "../../lib/connections";
+import {
+  localShellClose,
+  localShellOpen,
+  localShellResize,
+  localShellWrite,
+  sshClose,
+  sshOpen,
+  sshResize,
+  sshWrite,
+} from "../../lib/connections";
 import { applyTerminalInput } from "./terminalInput";
+import { webitermTerminalOptions } from "./terminalTheme";
+import "./terminalChrome.css";
 
 export type TerminalPaneHandle = {
   injectCommand: (command: string) => void;
@@ -12,7 +23,8 @@ export type TerminalPaneHandle = {
 };
 
 type TerminalPaneProps = {
-  connectionId: string;
+  mode: "ssh" | "local";
+  connectionId?: string;
   terminalSessionId: string;
   onFailed?: (message: string) => void;
   onLastCommand?: (command: string) => void;
@@ -20,7 +32,7 @@ type TerminalPaneProps = {
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   function TerminalPane(
-    { connectionId, terminalSessionId, onFailed, onLastCommand },
+    { mode, connectionId, terminalSessionId, onFailed, onLastCommand },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -38,7 +50,11 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         if (!term || !inputEnabledRef.current || !command) {
           return;
         }
-        void sshWrite(terminalSessionId, command).catch((error) => {
+        const write =
+          mode === "local"
+            ? (data: string) => localShellWrite(terminalSessionId, data)
+            : (data: string) => sshWrite(terminalSessionId, data);
+        void write(command).catch((error) => {
           term.writeln(`\r\n\x1b[31m${normalizeIpcError(error)}\x1b[0m`);
         });
         term.focus();
@@ -59,26 +75,13 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       let inputEnabled = false;
       let lineBuffer = "";
 
-      const term = new Terminal({
-        cursorBlink: true,
-        cursorStyle: "bar",
-        fontFamily: "SF Mono, ui-monospace, Menlo, monospace",
-        fontSize: 13,
-        lineHeight: 1.15,
-        scrollback: 5000,
-        theme: {
-          background: "#101114",
-          foreground: "#e8eaee",
-          cursor: "#8eabff",
-          selectionBackground: "#3d4f7a",
-        },
-      });
+      const term = new Terminal(webitermTerminalOptions);
       termRef.current = term;
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(container);
       fit.fit();
-      term.writeln("Connecting…");
+      term.writeln(mode === "local" ? "Starting local shell…" : "Connecting…");
 
       let clearedBanner = false;
       const eventName = `terminal-output-${terminalSessionId}`;
@@ -98,17 +101,30 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         if (next.submitted) {
           onLastCommandRef.current?.(next.submitted);
         }
-        void sshWrite(terminalSessionId, data).catch((error) => {
+        const writeData =
+          mode === "local"
+            ? (payload: string) => localShellWrite(terminalSessionId, payload)
+            : (payload: string) => sshWrite(terminalSessionId, payload);
+        void writeData(data).catch((error) => {
           term.writeln(`\r\n\x1b[31m${normalizeIpcError(error)}\x1b[0m`);
         });
       });
+
+      const resizeTerminal =
+        mode === "local"
+          ? (cols: number, rows: number) => localShellResize(terminalSessionId, cols, rows)
+          : (cols: number, rows: number) => sshResize(terminalSessionId, cols, rows);
+      const closeTerminal =
+        mode === "local"
+          ? () => localShellClose(terminalSessionId)
+          : () => sshClose(terminalSessionId);
 
       const resizeObserver = new ResizeObserver(() => {
         fit.fit();
         if (!inputEnabled || cancelled) {
           return;
         }
-        void sshResize(terminalSessionId, term.cols, term.rows);
+        void resizeTerminal(term.cols, term.rows);
       });
       resizeObserver.observe(container);
 
@@ -134,14 +150,21 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         }
 
         try {
-          await sshOpen(connectionId, terminalSessionId);
+          if (mode === "local") {
+            await localShellOpen(terminalSessionId);
+          } else {
+            if (!connectionId) {
+              throw new Error("Missing connection for SSH terminal.");
+            }
+            await sshOpen(connectionId, terminalSessionId);
+          }
           if (cancelled) {
             return;
           }
           inputEnabled = true;
           inputEnabledRef.current = true;
           fit.fit();
-          void sshResize(terminalSessionId, term.cols, term.rows);
+          void resizeTerminal(term.cols, term.rows);
           focusTerminal();
         } catch (error) {
           if (cancelled) {
@@ -163,18 +186,18 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         resizeObserver.disconnect();
         dataDisposable.dispose();
         unlisten?.();
-        void sshClose(terminalSessionId);
+        void closeTerminal();
         term.dispose();
       };
-    }, [connectionId, terminalSessionId]);
+    }, [connectionId, mode, terminalSessionId]);
 
     return (
       <div
         ref={containerRef}
-        className="h-full w-full min-h-0 bg-canvas p-1 outline-none"
+        className="terminal-pane h-full w-full min-h-0 outline-none"
         tabIndex={-1}
         role="application"
-        aria-label="SSH terminal"
+        aria-label={mode === "local" ? "Local terminal" : "SSH terminal"}
       />
     );
   },

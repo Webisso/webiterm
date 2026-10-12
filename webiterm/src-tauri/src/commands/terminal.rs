@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 
 use crate::error::{AppError, CommandError, command_error};
 use crate::storage::{self, Database};
-use crate::terminal::{SshTerminalManager, TerminalSessionInfo};
+use crate::terminal::{LocalShellSessionInfo, LocalTerminalManager, SshTerminalManager, TerminalSessionInfo};
 
 #[tauri::command]
 pub async fn ssh_open(
@@ -46,6 +46,46 @@ pub async fn ssh_resize(
 #[tauri::command]
 pub async fn ssh_close(
     manager: State<'_, SshTerminalManager>,
+    session_id: String,
+) -> Result<(), CommandError> {
+    manager.close(&session_id).map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn local_shell_open(
+    app: AppHandle,
+    manager: State<'_, LocalTerminalManager>,
+    terminal_session_id: Option<String>,
+) -> Result<LocalShellSessionInfo, CommandError> {
+    manager
+        .open(app, terminal_session_id)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn local_shell_write(
+    manager: State<'_, LocalTerminalManager>,
+    session_id: String,
+    data: String,
+) -> Result<(), CommandError> {
+    manager.write(&session_id, &data).map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn local_shell_resize(
+    manager: State<'_, LocalTerminalManager>,
+    session_id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<(), CommandError> {
+    manager
+        .resize(&session_id, cols, rows)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn local_shell_close(
+    manager: State<'_, LocalTerminalManager>,
     session_id: String,
 ) -> Result<(), CommandError> {
     manager.close(&session_id).map_err(command_error)

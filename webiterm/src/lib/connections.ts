@@ -14,6 +14,7 @@ import type {
   SftpFavoriteInput,
   SshCommandFavorite,
   SshCommandFavoriteInput,
+  LocalShellSessionInfo,
   TerminalSessionInfo,
 } from "../types/connections";
 
@@ -111,6 +112,22 @@ export async function sshResize(sessionId: string, cols: number, rows: number): 
 
 export async function sshClose(sessionId: string): Promise<void> {
   return invoke("ssh_close", { sessionId });
+}
+
+export async function localShellOpen(terminalSessionId?: string): Promise<LocalShellSessionInfo> {
+  return invoke("local_shell_open", { terminalSessionId });
+}
+
+export async function localShellWrite(sessionId: string, data: string): Promise<void> {
+  return invoke("local_shell_write", { sessionId, data });
+}
+
+export async function localShellResize(sessionId: string, cols: number, rows: number): Promise<void> {
+  return invoke("local_shell_resize", { sessionId, cols, rows });
+}
+
+export async function localShellClose(sessionId: string): Promise<void> {
+  return invoke("local_shell_close", { sessionId });
 }
 
 export async function mysqlQuery(

@@ -1,4 +1,5 @@
 import type { TaskBoardSummary } from "../../types/boards";
+import type { FolderNoteSummary } from "../../types/notes";
 import type { ConnectionGroup, ConnectionSummary } from "../../types/connections";
 import { normalizeConnectionGroup } from "./normalizeGroup";
 
@@ -10,22 +11,36 @@ export type GroupTreeNode = ConnectionGroup & {
   children: GroupTreeNode[];
   connections: ConnectionSummary[];
   boards: TaskBoardSummary[];
+  notes: FolderNoteSummary[];
 };
 
 export function buildConnectionTree(
   groups: ConnectionGroup[],
   connections: ConnectionSummary[],
   boards: TaskBoardSummary[] = [],
+  notes: FolderNoteSummary[] = [],
 ): { roots: GroupTreeNode[]; ungrouped: ConnectionSummary[] } {
   const nodes = new Map<string, GroupTreeNode>();
   for (const group of groups) {
     const normalized = normalizeConnectionGroup(group);
-    nodes.set(normalized.id, { ...normalized, children: [], connections: [], boards: [] });
+    nodes.set(normalized.id, {
+      ...normalized,
+      children: [],
+      connections: [],
+      boards: [],
+      notes: [],
+    });
   }
   for (const board of boards) {
     const node = nodes.get(board.groupId);
     if (node) {
       node.boards.push(board);
+    }
+  }
+  for (const note of notes) {
+    const node = nodes.get(note.groupId);
+    if (node) {
+      node.notes.push(note);
     }
   }
   for (const connection of connections) {
@@ -51,6 +66,7 @@ export function buildConnectionTree(
     for (const item of list) {
       item.connections.sort((a, b) => connectionSort(a, b));
       item.boards.sort((a, b) => a.name.localeCompare(b.name));
+      item.notes.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.title.localeCompare(b.title));
       sortNodes(item.children);
     }
   };
@@ -71,7 +87,8 @@ function connectionSort(a: ConnectionSummary, b: ConnectionSummary): number {
 export type VisibleTreeRow =
   | { kind: "group"; node: GroupTreeNode; depth: number }
   | { kind: "connection"; connection: ConnectionSummary; depth: number }
-  | { kind: "board"; board: TaskBoardSummary; depth: number };
+  | { kind: "board"; board: TaskBoardSummary; depth: number }
+  | { kind: "note"; note: FolderNoteSummary; depth: number };
 
 export function collectVisibleTreeRows(
   roots: GroupTreeNode[],
@@ -90,6 +107,9 @@ export function collectVisibleTreeRows(
       }
       for (const board of node.boards) {
         rows.push({ kind: "board", board, depth: depth + 1 });
+      }
+      for (const note of node.notes) {
+        rows.push({ kind: "note", note, depth: depth + 1 });
       }
     }
   };
