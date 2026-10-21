@@ -33,7 +33,9 @@ The updater downloads `latest.json` and release assets over HTTPS **without** a 
 
 ### 3. macOS “works with this version of macOS” / won’t open
 
-Recent macOS releases can refuse to launch apps whose bundle still declares **Carbon** (`LSRequiresCarbon`). WebiTerm ships a merged `src-tauri/Info.plist` that sets `LSRequiresCarbon` to false and `NSPrincipalClass` to `NSApplication`. If an older build shows the compatibility dialog, install **v0.1.7** or newer from [Releases](https://github.com/Webisso/webiterm/releases).
+Recent macOS releases can refuse to launch apps whose bundle still declares **Carbon** (`LSRequiresCarbon`). WebiTerm ships a merged `src-tauri/Info.plist` that sets `LSRequiresCarbon` to false and `NSPrincipalClass` to `NSApplication`.
+
+Release builds must **not** link Homebrew OpenSSL (`/opt/homebrew/opt/openssl@4/...`). If `otool -L` on the app binary lists that path, the app crashes on launch on machines without that library (macOS shows the generic compatibility dialog). **v0.1.8+** builds `ssh2` with `vendored-openssl` so the bundle is self-contained.
 
 ### 4. macOS “damaged” DMG / Gatekeeper
 
