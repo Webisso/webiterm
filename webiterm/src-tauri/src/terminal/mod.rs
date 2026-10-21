@@ -1,5 +1,7 @@
 mod ftp;
 mod local;
+mod remote_file;
+mod shell_file;
 mod ssh;
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -17,4 +19,7 @@ pub use ftp::{
     test_ftp_login,
 };
 pub use local::{LocalShellSessionInfo, LocalTerminalManager};
+pub use remote_file::{
+    RemoteFileContent, read_connection_remote_file, write_connection_remote_file,
+};
 pub use ssh::{MysqlQueryResult, SshTerminalManager, TerminalSessionInfo, run_mysql_query};

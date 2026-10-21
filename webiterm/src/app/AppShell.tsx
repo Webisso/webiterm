@@ -333,6 +333,43 @@ export function AppShell({
     return existing > 0 ? `${base} (${existing + 1})` : base;
   }
 
+  const openRemoteFileEditor = useCallback(
+    async (
+      connectionId: string,
+      remotePath: string,
+      sourceTerminalSessionId: string,
+    ) => {
+      await flushActiveNote();
+      const existing = sessions.find(
+        (session) =>
+          session.kind === "remoteFile" &&
+          session.connectionId === connectionId &&
+          session.remotePath === remotePath &&
+          session.sourceTerminalSessionId === sourceTerminalSessionId,
+      );
+      if (existing) {
+        setActiveSessionId(existing.id);
+        return;
+      }
+      const connection = connections.find((item) => item.id === connectionId);
+      const baseName = remotePath.split("/").filter(Boolean).pop() ?? remotePath;
+      const session: WorkspaceSession = {
+        id: crypto.randomUUID(),
+        kind: "remoteFile",
+        connectionId,
+        remotePath,
+        sourceTerminalSessionId,
+        title: baseName,
+      };
+      setSessions((current) => [...current, session]);
+      setActiveSessionId(session.id);
+      if (!connection) {
+        void refresh();
+      }
+    },
+    [connections, flushActiveNote, refresh, sessions],
+  );
+
   const openLocalTerminal = useCallback(async () => {
     await flushActiveNote();
     const terminalSessionId = crypto.randomUUID();
@@ -625,6 +662,9 @@ export function AppShell({
               onCloseSession={(id) => void closeSession(id)}
               onCreateLocalTerminal={openLocalTerminal}
               onNoteSaved={handleNoteSaved}
+              onOpenRemoteFile={(connectionId, remotePath, sourceTerminalSessionId) =>
+                void openRemoteFileEditor(connectionId, remotePath, sourceTerminalSessionId)
+              }
             />
             <Inspector collapsed={collapsed} state={state} onRetry={onRetry} />
           </>

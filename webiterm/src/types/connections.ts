@@ -146,10 +146,24 @@ export type LocalShellSessionInfo = {
   title: string;
 };
 
+export type RemoteFileContent = {
+  resolvedPath: string;
+  content: string;
+  truncated: boolean;
+};
+
 export type WorkspaceSession =
   | { id: string; kind: "ssh"; connectionId: string; title: string; terminalSessionId?: string }
   | { id: string; kind: "ftp"; connectionId: string; title: string; ftpSessionId?: string }
   | { id: string; kind: "mysql"; connectionId: string; title: string }
   | { id: string; kind: "local"; title: string; terminalSessionId?: string }
+  | {
+      id: string;
+      kind: "remoteFile";
+      connectionId: string;
+      title: string;
+      remotePath: string;
+      sourceTerminalSessionId: string;
+    }
   | { id: string; kind: "board"; boardId: string; groupId: string; title: string }
   | { id: string; kind: "note"; noteId: string; groupId: string; title: string };

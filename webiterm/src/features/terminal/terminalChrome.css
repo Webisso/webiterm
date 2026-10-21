@@ -19,3 +19,8 @@
 .terminal-pane .xterm-focus .xterm-cursor-layer .xterm-cursor {
   box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
+
+/* App shell sets user-select: none on html; keep xterm selection visible. */
+.terminal-pane .xterm .xterm-selection div {
+  opacity: 1;
+}

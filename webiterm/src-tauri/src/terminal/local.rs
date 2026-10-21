@@ -43,6 +43,8 @@ impl LocalTerminalManager {
         &self,
         app: AppHandle,
         terminal_session_id: Option<String>,
+        initial_cols: Option<u32>,
+        initial_rows: Option<u32>,
     ) -> Result<LocalShellSessionInfo, AppError> {
         let session_id = terminal_session_id
             .filter(|id| !id.is_empty())
@@ -62,7 +64,9 @@ impl LocalTerminalManager {
                 },
             );
         }
-        std::thread::spawn(move || run_local_session_io(app, event_name, command_rx));
+        let cols = initial_cols.unwrap_or(80).clamp(2, 500) as u16;
+        let rows = initial_rows.unwrap_or(24).clamp(2, 200) as u16;
+        std::thread::spawn(move || run_local_session_io(app, event_name, command_rx, cols, rows));
         Ok(info)
     }
 
@@ -107,11 +111,13 @@ fn run_local_session_io(
     app: AppHandle,
     event_name: String,
     commands: mpsc::Receiver<LocalIoCommand>,
+    cols: u16,
+    rows: u16,
 ) {
     let pty_system = native_pty_system();
     let pair = match pty_system.openpty(PtySize {
-        rows: 24,
-        cols: 80,
+        rows,
+        cols,
         pixel_width: 0,
         pixel_height: 0,
     }) {

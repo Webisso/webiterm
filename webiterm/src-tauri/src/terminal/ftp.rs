@@ -488,7 +488,7 @@ fn list_directory(session: &Session, cwd: &str) -> Result<FtpListResult, AppErro
     })
 }
 
-fn resolve_sftp_path(current: &str, target: &str) -> Result<String, AppError> {
+pub(crate) fn resolve_sftp_path(current: &str, target: &str) -> Result<String, AppError> {
     if target == ".." {
         let path = Path::new(current);
         let parent = path

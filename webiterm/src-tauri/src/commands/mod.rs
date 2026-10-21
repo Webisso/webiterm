@@ -5,6 +5,7 @@ mod ftp;
 mod local_data;
 mod mysql;
 mod open;
+mod remote_file;
 mod sftp_favorites;
 mod sftp_prefs;
 mod ssh_command_favorites;
@@ -31,6 +32,9 @@ pub use ftp::{
 pub use local_data::{export_local_data, import_local_data};
 pub use mysql::mysql_query;
 pub use open::{open_path_with_application, open_project_website};
+pub use remote_file::{
+    ssh_read_remote_file, ssh_terminal_read_file, ssh_terminal_write_file, ssh_write_remote_file,
+};
 pub use sftp_favorites::{
     create_sftp_favorite_cmd, delete_sftp_favorite_cmd, list_sftp_favorites_cmd,
     update_sftp_favorite_cmd,
@@ -49,5 +53,5 @@ pub use task_boards::{
 };
 pub use terminal::{
     local_shell_close, local_shell_open, local_shell_resize, local_shell_write, ssh_close,
-    ssh_open, ssh_resize, ssh_write,
+    ssh_open, ssh_resize, ssh_terminal_pwd, ssh_write,
 };

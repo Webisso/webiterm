@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import { EmptyState } from "./EmptyState";
 import { SessionTabBar } from "./SessionTabBar";
 import { TaskBoardPane } from "../features/boards/TaskBoardPane";
@@ -5,6 +6,7 @@ import { FolderNotePane } from "../features/notes/FolderNotePane";
 import { MysqlPane } from "../features/databases/MysqlPane";
 import { FtpPane } from "../features/ftp/FtpPane";
 import { LocalTerminalWorkspace } from "../features/terminal/LocalTerminalWorkspace";
+import { RemoteFileEditorPane } from "../features/terminal/RemoteFileEditorPane";
 import { SshTerminalWorkspace } from "../features/terminal/SshTerminalWorkspace";
 import type { ConnectionGroup, ConnectionSummary, WorkspaceSession } from "../types/connections";
 import type { FolderNoteSummary } from "../types/notes";
@@ -18,6 +20,11 @@ type WorkspaceProps = {
   onCloseSession: (id: string) => void;
   onCreateLocalTerminal: () => void;
   onNoteSaved: (note: FolderNoteSummary) => void;
+  onOpenRemoteFile?: (
+    connectionId: string,
+    remotePath: string,
+    sourceTerminalSessionId: string,
+  ) => void;
 };
 
 export function Workspace({
@@ -29,7 +36,22 @@ export function Workspace({
   onCloseSession,
   onCreateLocalTerminal,
   onNoteSaved,
+  onOpenRemoteFile,
 }: WorkspaceProps) {
+  const [remoteTabCloseRequestId, setRemoteTabCloseRequestId] = useState<string | null>(null);
+
+  const handleCloseSession = useCallback(
+    (id: string) => {
+      const session = sessions.find((item) => item.id === id);
+      if (session?.kind === "remoteFile") {
+        setRemoteTabCloseRequestId(id);
+        return;
+      }
+      onCloseSession(id);
+    },
+    [onCloseSession, sessions],
+  );
+
   const active = sessions.find((session) => session.id === activeSessionId) ?? sessions[0] ?? null;
   const noteSessions = sessions.filter((session) => session.kind === "note");
   const terminalSessions = sessions.filter(
@@ -45,7 +67,7 @@ export function Workspace({
         connections={connections}
         groups={groups}
         onSelectSession={onSelectSession}
-        onCloseSession={onCloseSession}
+        onCloseSession={handleCloseSession}
       />
       <div className="relative min-h-0 flex-1">
         {noteSessions.map((session) => {
@@ -101,11 +123,43 @@ export function Workspace({
                 <SshTerminalWorkspace
                   connectionId={session.connectionId}
                   terminalSessionId={terminalSessionId}
+                  onOpenRemoteFile={
+                    onOpenRemoteFile
+                      ? (remotePath, sourceTerminalSessionId) =>
+                          onOpenRemoteFile(
+                            session.connectionId,
+                            remotePath,
+                            sourceTerminalSessionId,
+                          )
+                      : undefined
+                  }
                 />
               ) : null}
             </div>
           );
         })}
+        {sessions
+          .filter((session) => session.kind === "remoteFile")
+          .map((session) => {
+            const visible = active?.id === session.id;
+            return (
+              <div
+                key={session.id}
+                className={`absolute inset-0 flex min-h-0 flex-col ${visible ? "" : "hidden"}`}
+                aria-hidden={!visible}
+              >
+                <RemoteFileEditorPane
+                  editorSessionId={session.id}
+                  connectionId={session.connectionId}
+                  remotePath={session.remotePath}
+                  sourceTerminalSessionId={session.sourceTerminalSessionId}
+                  tabCloseRequestId={remoteTabCloseRequestId}
+                  onTabCloseRequestHandled={() => setRemoteTabCloseRequestId(null)}
+                  onClose={() => onCloseSession(session.id)}
+                />
+              </div>
+            );
+          })}
         {active && active.kind === "ftp" && active.ftpSessionId ? (
           <FtpPane
             key={active.ftpSessionId}

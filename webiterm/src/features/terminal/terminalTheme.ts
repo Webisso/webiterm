@@ -56,7 +56,7 @@ export const webitermTerminalOptions = {
   cursorStyle: "bar" as const,
   cursorWidth: 2,
   cursorInactiveStyle: "outline" as const,
-  fontFamily: 'var(--font-mono), "SF Mono", ui-monospace, Menlo, monospace',
+  fontFamily: '"SF Mono", ui-monospace, Menlo, Consolas, monospace',
   fontSize: 13,
   lineHeight: 1.2,
   letterSpacing: 0,
@@ -67,5 +67,8 @@ export const webitermTerminalOptions = {
   minimumContrastRatio: 1,
   customGlyphs: true,
   allowTransparency: false,
+  macOptionIsMeta: true,
+  rightClickSelectsWord: true,
+  macOptionClickForcesSelection: true,
   theme: webitermTerminalTheme,
 };

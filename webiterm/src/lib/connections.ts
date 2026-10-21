@@ -15,6 +15,7 @@ import type {
   SshCommandFavorite,
   SshCommandFavoriteInput,
   LocalShellSessionInfo,
+  RemoteFileContent,
   TerminalSessionInfo,
 } from "../types/connections";
 
@@ -98,8 +99,10 @@ export async function importLocalData(path: string): Promise<void> {
 export async function sshOpen(
   connectionId: string,
   terminalSessionId?: string,
+  cols?: number,
+  rows?: number,
 ): Promise<TerminalSessionInfo> {
-  return invoke("ssh_open", { connectionId, terminalSessionId });
+  return invoke("ssh_open", { connectionId, terminalSessionId, cols, rows });
 }
 
 export async function sshWrite(sessionId: string, data: string): Promise<void> {
@@ -114,8 +117,69 @@ export async function sshClose(sessionId: string): Promise<void> {
   return invoke("ssh_close", { sessionId });
 }
 
-export async function localShellOpen(terminalSessionId?: string): Promise<LocalShellSessionInfo> {
-  return invoke("local_shell_open", { terminalSessionId });
+export async function sshTerminalPwd(sessionId: string): Promise<string> {
+  return invoke("ssh_terminal_pwd", { sessionId });
+}
+
+export async function sshReadRemoteFile(
+  connectionId: string,
+  remotePath: string,
+  workingDirectory: string | null,
+): Promise<RemoteFileContent> {
+  return invoke("ssh_read_remote_file", {
+    connectionId,
+    remotePath,
+    workingDirectory,
+  });
+}
+
+export async function sshWriteRemoteFile(
+  connectionId: string,
+  remotePath: string,
+  workingDirectory: string | null,
+  content: string,
+): Promise<string> {
+  return invoke("ssh_write_remote_file", {
+    connectionId,
+    remotePath,
+    workingDirectory,
+    content,
+  });
+}
+
+/** Read a path relative to the interactive SSH tab's current directory (nano/edit flow). */
+export async function sshTerminalReadFile(
+  connectionId: string,
+  terminalSessionId: string,
+  remotePath: string,
+): Promise<RemoteFileContent> {
+  return invoke("ssh_terminal_read_file", {
+    connectionId,
+    terminalSessionId,
+    remotePath,
+  });
+}
+
+export async function sshTerminalWriteFile(
+  connectionId: string,
+  terminalSessionId: string,
+  remotePath: string,
+  content: string,
+): Promise<string> {
+  return invoke("ssh_terminal_write_file", {
+    connectionId,
+    terminalSessionId,
+    remotePath,
+    content,
+  });
+}
+
+export async function localShellOpen(
+  terminalSessionId?: string,
+  cols?: number,
+  rows?: number,
+): Promise<LocalShellSessionInfo> {
+  return invoke("local_shell_open", { terminalSessionId, cols, rows });
 }
 
 export async function localShellWrite(sessionId: string, data: string): Promise<void> {

@@ -13,13 +13,15 @@ pub async fn ssh_open(
     manager: State<'_, SshTerminalManager>,
     connection_id: String,
     terminal_session_id: Option<String>,
+    cols: Option<u32>,
+    rows: Option<u32>,
 ) -> Result<TerminalSessionInfo, CommandError> {
     let connection = storage::get_connection(&state, &connection_id)
         .map_err(command_error)?
         .ok_or_else(|| command_error(AppError::NotFound))?;
     let password = storage::resolve_password(&state, &connection.id).map_err(command_error)?;
     manager
-        .open(app, connection, password, terminal_session_id)
+        .open(app, connection, password, terminal_session_id, cols, rows)
         .await
         .map_err(command_error)
 }
@@ -54,13 +56,23 @@ pub async fn ssh_close(
 }
 
 #[tauri::command]
+pub async fn ssh_terminal_pwd(
+    manager: State<'_, SshTerminalManager>,
+    session_id: String,
+) -> Result<String, CommandError> {
+    manager.query_pwd(&session_id).map_err(command_error)
+}
+
+#[tauri::command]
 pub async fn local_shell_open(
     app: AppHandle,
     manager: State<'_, LocalTerminalManager>,
     terminal_session_id: Option<String>,
+    cols: Option<u32>,
+    rows: Option<u32>,
 ) -> Result<LocalShellSessionInfo, CommandError> {
     manager
-        .open(app, terminal_session_id)
+        .open(app, terminal_session_id, cols, rows)
         .map_err(command_error)
 }
 

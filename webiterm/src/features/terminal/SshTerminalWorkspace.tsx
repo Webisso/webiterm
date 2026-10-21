@@ -2,22 +2,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listSshCommandFavorites } from "../../lib/connections";
 import type { SshCommandFavorite } from "../../types/connections";
 import { keyboardShortcutFromEvent } from "../favorites/constants";
+import { parseRemoteEditorPath } from "./remoteEditorCommand";
 import { SshCommandFavoritesPanel } from "./SshCommandFavoritesPanel";
 import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 
 type SshTerminalWorkspaceProps = {
   connectionId: string;
   terminalSessionId: string;
+  onOpenRemoteFile?: (
+    remotePath: string,
+    sourceTerminalSessionId: string,
+  ) => void;
 };
 
 export function SshTerminalWorkspace({
   connectionId,
   terminalSessionId,
+  onOpenRemoteFile,
 }: SshTerminalWorkspaceProps) {
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [favorites, setFavorites] = useState<SshCommandFavorite[]>([]);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
   const terminalRef = useRef<TerminalPaneHandle | null>(null);
+  const onOpenRemoteFileRef = useRef(onOpenRemoteFile);
+  onOpenRemoteFileRef.current = onOpenRemoteFile;
 
   const reloadFavorites = useCallback(async () => {
     try {
@@ -53,6 +61,18 @@ export function SshTerminalWorkspace({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [favorites, injectCommand]);
 
+  const handleBeforeSubmitCommand = useCallback(
+    (command: string) => {
+      const path = parseRemoteEditorPath(command);
+      if (!path || !onOpenRemoteFileRef.current) {
+        return false;
+      }
+      onOpenRemoteFileRef.current(path, terminalSessionId);
+      return true;
+    },
+    [terminalSessionId],
+  );
+
   return (
     <div className="flex h-full min-h-0 bg-canvas text-[13px] text-ink">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -70,7 +90,9 @@ export function SshTerminalWorkspace({
               Last: {lastCommand}
             </span>
           ) : (
-            <span className="text-[11px] text-faint">Run a command to capture it as a favorite</span>
+            <span className="text-[11px] text-faint">
+              nanoo .env — edit in app · nano — server editor
+            </span>
           )}
         </div>
         <div className="min-h-0 flex-1">
@@ -80,6 +102,7 @@ export function SshTerminalWorkspace({
             connectionId={connectionId}
             terminalSessionId={terminalSessionId}
             onLastCommand={setLastCommand}
+            onBeforeSubmitCommand={onOpenRemoteFile ? handleBeforeSubmitCommand : undefined}
           />
         </div>
       </div>

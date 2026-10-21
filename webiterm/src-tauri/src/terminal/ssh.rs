@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use ssh2::Session;
@@ -15,6 +15,7 @@ use crate::domain::connection::{AuthMethod, ConnectionKind};
 use crate::error::AppError;
 use crate::storage::build_mysql_url;
 use crate::terminal::emit_terminal_output;
+use crate::terminal::shell_file::{self, CapturedShellFile, CaptureReady};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,8 +28,59 @@ pub struct TerminalSessionInfo {
 enum SshIoCommand {
     Write(Vec<u8>),
     Resize { cols: u32, rows: u32 },
+    QueryPwd {
+        response_tx: mpsc::Sender<Result<String, AppError>>,
+    },
+    ClearPwdWatch,
+    ReadFile {
+        path: String,
+        response_tx: mpsc::Sender<Result<CapturedShellFile, AppError>>,
+    },
+    WriteFile {
+        path: String,
+        content: String,
+        response_tx: mpsc::Sender<Result<String, AppError>>,
+    },
+    ClearFileWatch,
     Shutdown,
 }
+
+enum QueuedFile {
+    Read {
+        path: String,
+        response_tx: mpsc::Sender<Result<CapturedShellFile, AppError>>,
+    },
+    Write {
+        path: String,
+        content: String,
+        response_tx: mpsc::Sender<Result<String, AppError>>,
+    },
+}
+
+enum FileWatch {
+    Read {
+        buffer: String,
+        started: Instant,
+        response_tx: mpsc::Sender<Result<CapturedShellFile, AppError>>,
+    },
+    Write {
+        buffer: String,
+        started: Instant,
+        response_tx: mpsc::Sender<Result<String, AppError>>,
+    },
+}
+
+struct PwdWatch {
+    buffer: String,
+    response_txs: Vec<mpsc::Sender<Result<String, AppError>>>,
+    started: Instant,
+}
+
+const PWD_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
+const PWD_WATCH_MAX_BYTES: usize = 65_536;
+
+const PWD_PROBE_COMMAND: &[u8] = b"pwd -P\n";
+const PWD_LINE_PREFIX: &str = "WEBITERM_PWD_LINE=";
 
 struct SshSession {
     command_tx: mpsc::Sender<SshIoCommand>,
@@ -51,6 +103,8 @@ impl SshTerminalManager {
         connection: ConnectionSummary,
         password: Option<String>,
         terminal_session_id: Option<String>,
+        initial_cols: Option<u32>,
+        initial_rows: Option<u32>,
     ) -> Result<TerminalSessionInfo, AppError> {
         if !matches!(
             connection.kind,
@@ -83,6 +137,8 @@ impl SshTerminalManager {
         let startup_command = connection.startup_command.clone();
         let secret = secret.unwrap_or_default();
         let event_name = format!("terminal-output-{}", session_id);
+        let cols = initial_cols.unwrap_or(80).clamp(2, 500);
+        let rows = initial_rows.unwrap_or(24).clamp(2, 200);
         let (mut channel, session) = tokio::time::timeout(
             Duration::from_secs(45),
             tokio::task::spawn_blocking(move || {
@@ -93,6 +149,8 @@ impl SshTerminalManager {
                     auth_method,
                     &secret,
                     private_key_path.as_deref(),
+                    cols,
+                    rows,
                 )
             }),
         )
@@ -162,6 +220,96 @@ impl SshTerminalManager {
         let _ = session.command_tx.send(SshIoCommand::Shutdown);
         Ok(())
     }
+
+    pub fn query_pwd(&self, session_id: &str) -> Result<String, AppError> {
+        let sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(session) = sessions.get(session_id) else {
+            return Err(AppError::SessionNotFound);
+        };
+        let (response_tx, response_rx) = mpsc::channel();
+        session
+            .command_tx
+            .send(SshIoCommand::QueryPwd { response_tx })
+            .map_err(|_| AppError::ConnectionFailed("SSH session is closed.".to_string()))?;
+        match response_rx.recv_timeout(Duration::from_secs(4)) {
+            Ok(Ok(path)) if is_plausible_shell_pwd(&path) => Ok(path),
+            Ok(Ok(_)) => Err(AppError::ConnectionFailed(
+                "Shell returned an invalid working directory.".to_string(),
+            )),
+            Ok(Err(error)) => Err(error),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = session
+                    .command_tx
+                    .send(SshIoCommand::ClearPwdWatch);
+                Err(AppError::ConnectionFailed(
+                    "Timed out reading shell working directory.".to_string(),
+                ))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(AppError::ConnectionFailed(
+                "SSH session is closed.".to_string(),
+            )),
+        }
+    }
+
+    pub fn read_file_via_shell(
+        &self,
+        session_id: &str,
+        remote_path: &str,
+    ) -> Result<CapturedShellFile, AppError> {
+        let command_tx = self.command_sender(session_id)?;
+        let (response_tx, response_rx) = mpsc::channel();
+        command_tx
+            .send(SshIoCommand::ReadFile {
+                path: remote_path.to_string(),
+                response_tx,
+            })
+            .map_err(|_| AppError::ConnectionFailed("SSH session is closed.".to_string()))?;
+        wait_file_result(&command_tx, response_rx)
+    }
+
+    pub fn write_file_via_shell(
+        &self,
+        session_id: &str,
+        remote_path: &str,
+        content: &str,
+    ) -> Result<String, AppError> {
+        let command_tx = self.command_sender(session_id)?;
+        let (response_tx, response_rx) = mpsc::channel();
+        command_tx
+            .send(SshIoCommand::WriteFile {
+                path: remote_path.to_string(),
+                content: content.to_string(),
+                response_tx,
+            })
+            .map_err(|_| AppError::ConnectionFailed("SSH session is closed.".to_string()))?;
+        wait_file_result(&command_tx, response_rx)
+    }
+
+    fn command_sender(&self, session_id: &str) -> Result<mpsc::Sender<SshIoCommand>, AppError> {
+        let sessions = self.sessions.lock().unwrap_or_else(|poison| poison.into_inner());
+        sessions
+            .get(session_id)
+            .map(|session| session.command_tx.clone())
+            .ok_or(AppError::SessionNotFound)
+    }
+}
+
+fn wait_file_result<T>(
+    command_tx: &mpsc::Sender<SshIoCommand>,
+    response_rx: mpsc::Receiver<Result<T, AppError>>,
+) -> Result<T, AppError> {
+    match response_rx.recv_timeout(Duration::from_secs(25)) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            let _ = command_tx.send(SshIoCommand::ClearFileWatch);
+            Err(AppError::ConnectionFailed(
+                "Timed out reading the file from the shell.".to_string(),
+            ))
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(AppError::ConnectionFailed(
+            "SSH session is closed.".to_string(),
+        )),
+    }
 }
 
 fn run_ssh_session_io(
@@ -178,6 +326,9 @@ fn run_ssh_session_io(
     let mut buffer = [0_u8; 4096];
     let mut pending_write: Vec<u8> = Vec::new();
     let mut shutdown = false;
+    let mut pwd_watch: Option<PwdWatch> = None;
+    let mut file_watch: Option<FileWatch> = None;
+    let mut file_queue: VecDeque<QueuedFile> = VecDeque::new();
 
     if let Some(command) = startup_command
         .as_deref()
@@ -191,10 +342,19 @@ fn run_ssh_session_io(
     }
 
     while !shutdown {
+        expire_pwd_watch_if_needed(&mut pwd_watch);
+        expire_file_watch_if_needed(&mut file_watch, &mut file_queue, &mut pending_write);
         flush_ssh_pending_write(&mut channel, &mut pending_write);
 
         if matches!(
-            drain_ssh_commands(&mut channel, &commands, &mut pending_write),
+            drain_ssh_commands(
+                &mut channel,
+                &commands,
+                &mut pending_write,
+                &mut pwd_watch,
+                &mut file_watch,
+                &mut file_queue,
+            ),
             DrainResult::Shutdown
         ) {
             break;
@@ -215,11 +375,22 @@ fn run_ssh_session_io(
                     &mut channel,
                     &mut pending_write,
                     &mut shutdown,
+                    &mut pwd_watch,
+                    &mut file_watch,
+                    &mut file_queue,
                 );
             }
             Ok(count) => {
                 let payload = String::from_utf8_lossy(&buffer[..count]).to_string();
-                emit_terminal_output(&app, &event_name, payload);
+                note_ssh_output(
+                    &app,
+                    &event_name,
+                    &payload,
+                    &mut pending_write,
+                    &mut pwd_watch,
+                    &mut file_watch,
+                    &mut file_queue,
+                );
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 wait_for_ssh_io(
@@ -228,6 +399,9 @@ fn run_ssh_session_io(
                     &mut channel,
                     &mut pending_write,
                     &mut shutdown,
+                    &mut pwd_watch,
+                    &mut file_watch,
+                    &mut file_queue,
                 );
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -237,6 +411,12 @@ fn run_ssh_session_io(
         }
     }
 
+    if let Some(watch) = file_watch.take() {
+        fail_file_watch(watch, "SSH session is closed.");
+    }
+    while let Some(op) = file_queue.pop_front() {
+        fail_queued_file(op, "SSH session is closed.");
+    }
     let _ = channel.close();
     let _ = session.disconnect(None, "closed", None);
     {
@@ -251,10 +431,225 @@ enum DrainResult {
     Shutdown,
 }
 
+fn finish_pwd_watch(watch: PwdWatch, result: Result<String, AppError>) {
+    for tx in watch.response_txs {
+        let outbound = match &result {
+            Ok(path) => Ok(path.clone()),
+            Err(AppError::ConnectionFailed(message)) => {
+                Err(AppError::ConnectionFailed(message.clone()))
+            }
+            Err(error) => Err(AppError::ConnectionFailed(error.public_message())),
+        };
+        let _ = tx.send(outbound);
+    }
+}
+
+fn expire_pwd_watch_if_needed(pwd_watch: &mut Option<PwdWatch>) {
+    let expired = pwd_watch.as_ref().is_some_and(|watch| {
+        watch.started.elapsed() > PWD_QUERY_TIMEOUT || watch.buffer.len() > PWD_WATCH_MAX_BYTES
+    });
+    if expired {
+        let watch = pwd_watch.take().expect("pwd watch");
+        finish_pwd_watch(
+            watch,
+            Err(AppError::ConnectionFailed(
+                "Timed out reading shell working directory.".to_string(),
+            )),
+        );
+    }
+}
+
+const FILE_WATCH_TIMEOUT: Duration = Duration::from_secs(20);
+const FILE_WATCH_MAX_BYTES: usize = 6 * 1024 * 1024;
+
+fn fail_file_watch(watch: FileWatch, message: &str) {
+    let error = AppError::ConnectionFailed(message.to_string());
+    match watch {
+        FileWatch::Read { response_tx, .. } => {
+            let _ = response_tx.send(Err(error));
+        }
+        FileWatch::Write { response_tx, .. } => {
+            let _ = response_tx.send(Err(error));
+        }
+    }
+}
+
+fn fail_queued_file(op: QueuedFile, message: &str) {
+    let error = AppError::ConnectionFailed(message.to_string());
+    match op {
+        QueuedFile::Read { response_tx, .. } => {
+            let _ = response_tx.send(Err(error));
+        }
+        QueuedFile::Write { response_tx, .. } => {
+            let _ = response_tx.send(Err(error));
+        }
+    }
+}
+
+fn file_watch_buffer(watch: &mut FileWatch) -> &mut String {
+    match watch {
+        FileWatch::Read { buffer, .. } | FileWatch::Write { buffer, .. } => buffer,
+    }
+}
+
+fn file_watch_started(watch: &FileWatch) -> Instant {
+    match watch {
+        FileWatch::Read { started, .. } | FileWatch::Write { started, .. } => *started,
+    }
+}
+
+fn launch_file_op(
+    pending_write: &mut Vec<u8>,
+    pwd_watch: &mut Option<PwdWatch>,
+    file_watch: &mut Option<FileWatch>,
+    op: QueuedFile,
+) {
+    if let Some(watch) = pwd_watch.take() {
+        finish_pwd_watch(
+            watch,
+            Err(AppError::ConnectionFailed(
+                "Working directory query was interrupted.".to_string(),
+            )),
+        );
+    }
+    let script = match &op {
+        QueuedFile::Read { path, .. } => shell_file::build_read_script(path),
+        QueuedFile::Write { path, content, .. } => shell_file::build_write_script(path, content),
+    };
+    match script {
+        Ok(script) => {
+            pending_write.extend(script.into_bytes());
+            *file_watch = Some(match op {
+                QueuedFile::Read { response_tx, .. } => FileWatch::Read {
+                    buffer: String::new(),
+                    started: Instant::now(),
+                    response_tx,
+                },
+                QueuedFile::Write { response_tx, .. } => FileWatch::Write {
+                    buffer: String::new(),
+                    started: Instant::now(),
+                    response_tx,
+                },
+            });
+        }
+        Err(error) => {
+            let message = match error {
+                AppError::ConnectionFailed(message) => message,
+                other => other.public_message(),
+            };
+            fail_queued_file(op, &message);
+        }
+    }
+}
+
+fn expire_file_watch_if_needed(
+    file_watch: &mut Option<FileWatch>,
+    file_queue: &mut VecDeque<QueuedFile>,
+    pending_write: &mut Vec<u8>,
+) {
+    let expired = file_watch.as_ref().is_some_and(|watch| {
+        file_watch_started(watch).elapsed() > FILE_WATCH_TIMEOUT
+            || file_watch_buffer_len(watch) > FILE_WATCH_MAX_BYTES
+    });
+    if !expired {
+        return;
+    }
+    pending_write.extend(b"\x03");
+    if let Some(watch) = file_watch.take() {
+        fail_file_watch(watch, "Timed out reading the file from the shell.");
+    }
+    while let Some(op) = file_queue.pop_front() {
+        fail_queued_file(op, "Timed out reading the file from the shell.");
+    }
+}
+
+fn file_watch_buffer_len(watch: &FileWatch) -> usize {
+    match watch {
+        FileWatch::Read { buffer, .. } | FileWatch::Write { buffer, .. } => buffer.len(),
+    }
+}
+
+fn finish_ready_file_watch(
+    pending_write: &mut Vec<u8>,
+    pwd_watch: &mut Option<PwdWatch>,
+    file_watch: &mut Option<FileWatch>,
+    file_queue: &mut VecDeque<QueuedFile>,
+) {
+    *file_watch = None;
+    if let Some(next) = file_queue.pop_front() {
+        launch_file_op(pending_write, pwd_watch, file_watch, next);
+        return;
+    }
+    // Drop the captured prompt fragments. An empty line redraws one clean prompt
+    // and bash does not store it in history.
+    pending_write.extend(b"\n");
+}
+
+fn note_ssh_output(
+    app: &AppHandle,
+    event_name: &str,
+    payload: &str,
+    pending_write: &mut Vec<u8>,
+    pwd_watch: &mut Option<PwdWatch>,
+    file_watch: &mut Option<FileWatch>,
+    file_queue: &mut VecDeque<QueuedFile>,
+) {
+    if file_watch.is_some() {
+        if let Some(watch) = file_watch.as_mut() {
+            file_watch_buffer(watch).push_str(payload);
+        }
+        let ready = match file_watch.as_ref() {
+            Some(FileWatch::Read { buffer, .. }) => shell_file::poll_read(buffer).map(|ready| {
+                CaptureReady {
+                    value: ready.value.map(|file| FileOpResult::Read(file)),
+                    leftover: ready.leftover,
+                }
+            }),
+            Some(FileWatch::Write { buffer, .. }) => shell_file::poll_write(buffer).map(|ready| {
+                CaptureReady {
+                    value: ready.value.map(FileOpResult::Write),
+                    leftover: ready.leftover,
+                }
+            }),
+            None => None,
+        };
+        if let Some(ready) = ready {
+            if let Some(watch) = file_watch.take() {
+                match (watch, ready.value) {
+                    (FileWatch::Read { response_tx, .. }, Ok(FileOpResult::Read(file))) => {
+                        let _ = response_tx.send(Ok(file));
+                    }
+                    (FileWatch::Write { response_tx, .. }, Ok(FileOpResult::Write(path))) => {
+                        let _ = response_tx.send(Ok(path));
+                    }
+                    (FileWatch::Read { response_tx, .. }, Err(error)) => {
+                        let _ = response_tx.send(Err(error));
+                    }
+                    (FileWatch::Write { response_tx, .. }, Err(error)) => {
+                        let _ = response_tx.send(Err(error));
+                    }
+                    (watch, _) => fail_file_watch(watch, "Could not update that file."),
+                }
+            }
+            finish_ready_file_watch(pending_write, pwd_watch, file_watch, file_queue);
+        }
+        return;
+    }
+    emit_ssh_payload(app, event_name, payload.to_string(), pwd_watch);
+}
+
+enum FileOpResult {
+    Read(CapturedShellFile),
+    Write(String),
+}
+
 fn drain_ssh_commands(
     channel: &mut ssh2::Channel,
     commands: &mpsc::Receiver<SshIoCommand>,
     pending_write: &mut Vec<u8>,
+    pwd_watch: &mut Option<PwdWatch>,
+    file_watch: &mut Option<FileWatch>,
+    file_queue: &mut VecDeque<QueuedFile>,
 ) -> DrainResult {
     while let Ok(command) = commands.try_recv() {
         match command {
@@ -267,9 +662,164 @@ fn drain_ssh_commands(
                     let _ = channel.request_pty_size(cols, rows, None, None);
                 }
             }
+            SshIoCommand::QueryPwd { response_tx } => {
+                if let Some(watch) = pwd_watch.as_mut() {
+                    watch.response_txs.push(response_tx);
+                    continue;
+                }
+                *pwd_watch = Some(PwdWatch {
+                    buffer: String::new(),
+                    response_txs: vec![response_tx],
+                    started: Instant::now(),
+                });
+                pending_write.extend(PWD_PROBE_COMMAND);
+            }
+            SshIoCommand::ClearPwdWatch => {
+                if let Some(watch) = pwd_watch.take() {
+                    finish_pwd_watch(
+                        watch,
+                        Err(AppError::ConnectionFailed(
+                            "Timed out reading shell working directory.".to_string(),
+                        )),
+                    );
+                }
+            }
+            SshIoCommand::ReadFile { path, response_tx } => {
+                let op = QueuedFile::Read { path, response_tx };
+                if file_watch.is_some() {
+                    file_queue.push_back(op);
+                } else {
+                    launch_file_op(pending_write, pwd_watch, file_watch, op);
+                }
+            }
+            SshIoCommand::WriteFile {
+                path,
+                content,
+                response_tx,
+            } => {
+                let op = QueuedFile::Write {
+                    path,
+                    content,
+                    response_tx,
+                };
+                if file_watch.is_some() {
+                    file_queue.push_back(op);
+                } else {
+                    launch_file_op(pending_write, pwd_watch, file_watch, op);
+                }
+            }
+            SshIoCommand::ClearFileWatch => {
+                pending_write.extend(b"\x03");
+                if let Some(watch) = file_watch.take() {
+                    fail_file_watch(watch, "Timed out reading the file from the shell.");
+                }
+                while let Some(op) = file_queue.pop_front() {
+                    fail_queued_file(op, "Timed out reading the file from the shell.");
+                }
+            }
         }
     }
     DrainResult::Continue
+}
+
+fn emit_ssh_payload(
+    app: &AppHandle,
+    event_name: &str,
+    payload: String,
+    pwd_watch: &mut Option<PwdWatch>,
+) {
+    if let Some(watch) = pwd_watch.as_mut() {
+        watch.buffer.push_str(&payload);
+        if let Some(path) = extract_webiterm_pwd(&watch.buffer) {
+            if let Some(watch) = pwd_watch.take() {
+                finish_pwd_watch(watch, Ok(path));
+            }
+        }
+    }
+    let cleaned = strip_webiterm_pwd_artifacts(&payload);
+    if !cleaned.is_empty() {
+        emit_terminal_output(app, event_name, cleaned);
+    }
+}
+
+fn extract_webiterm_pwd(buffer: &str) -> Option<String> {
+    let mut resolved = None;
+    let mut search_from = 0usize;
+    while let Some(rel) = buffer[search_from..].find(PWD_LINE_PREFIX) {
+        let idx = search_from + rel;
+        let after = &buffer[idx + PWD_LINE_PREFIX.len()..];
+        let Some(line_end) = after.find('\n').or_else(|| after.find('\r')) else {
+            break;
+        };
+        let path = normalize_remote_path(after[..line_end].trim());
+        if is_plausible_shell_pwd(&path) {
+            resolved = Some(path);
+        }
+        search_from = idx + PWD_LINE_PREFIX.len() + line_end + 1;
+    }
+    for line in buffer.lines() {
+        let trimmed = line.trim().trim_end_matches('\r');
+        if trimmed.is_empty() || trimmed.contains(PWD_LINE_PREFIX) || trimmed == "pwd -P" {
+            continue;
+        }
+        if trimmed.starts_with('/') {
+            let path = normalize_remote_path(trimmed);
+            if is_plausible_shell_pwd(&path) {
+                resolved = Some(path);
+            }
+        }
+    }
+    resolved
+}
+
+pub(crate) fn normalize_remote_path(path: &str) -> String {
+    strip_ansi_escapes(path)
+        .chars()
+        .filter(|ch| *ch != '\r' && *ch != '\n')
+        .collect()
+}
+
+pub(crate) fn is_plausible_shell_pwd(path: &str) -> bool {
+    let path = path.trim();
+    if path.is_empty() || path.contains('%') {
+        return false;
+    }
+    if path.chars().any(char::is_whitespace) {
+        return false;
+    }
+    if !(path.starts_with('/') || path.starts_with('~')) {
+        return false;
+    }
+    path.len() >= 2
+}
+
+fn strip_ansi_escapes(value: &str) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            while let Some(&next) = chars.peek() {
+                chars.next();
+                if next.is_ascii_alphabetic() || next == '@' {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn strip_webiterm_pwd_artifacts(payload: &str) -> String {
+    let mut cleaned = String::new();
+    for line in payload.split_inclusive('\n') {
+        if line.contains(PWD_LINE_PREFIX) {
+            continue;
+        }
+        cleaned.push_str(line);
+    }
+    cleaned
 }
 
 fn flush_ssh_pending_write(channel: &mut ssh2::Channel, pending: &mut Vec<u8>) {
@@ -303,12 +853,24 @@ fn wait_for_ssh_io(
     channel: &mut ssh2::Channel,
     pending_write: &mut Vec<u8>,
     shutdown: &mut bool,
+    pwd_watch: &mut Option<PwdWatch>,
+    file_watch: &mut Option<FileWatch>,
+    file_queue: &mut VecDeque<QueuedFile>,
 ) {
+    expire_pwd_watch_if_needed(pwd_watch);
+    expire_file_watch_if_needed(file_watch, file_queue, pending_write);
     let _ = session.keepalive_send();
     flush_ssh_pending_write(channel, pending_write);
     for _ in 0..40 {
         if matches!(
-            drain_ssh_commands(channel, commands, pending_write),
+            drain_ssh_commands(
+                channel,
+                commands,
+                pending_write,
+                pwd_watch,
+                file_watch,
+                file_queue,
+            ),
             DrainResult::Shutdown
         ) {
             *shutdown = true;
@@ -360,13 +922,15 @@ fn open_ssh_channel(
     auth_method: AuthMethod,
     secret: &str,
     private_key_path: Option<&str>,
+    cols: u32,
+    rows: u32,
 ) -> Result<(ssh2::Channel, Session), AppError> {
     let session = connect_ssh_session(host, port, username, auth_method, secret, private_key_path)?;
     let mut channel = session
         .channel_session()
         .map_err(|_| AppError::ConnectionFailed("Could not open SSH channel.".to_string()))?;
     channel
-        .request_pty("xterm-256color", None, Some((80, 24, 0, 0)))
+        .request_pty("xterm-256color", None, Some((cols, rows, 0, 0)))
         .map_err(|_| AppError::ConnectionFailed("Could not request SSH PTY.".to_string()))?;
     for (key, value) in ssh_shell_env() {
         let _ = channel.setenv(key, value);

@@ -5,7 +5,12 @@ import type {
   WorkspaceSession,
 } from "../../types/connections";
 
-export type SessionProtocolKind = Exclude<WorkspaceSession["kind"], "board" | "note">;
+export type SessionProtocolKind = Exclude<
+  WorkspaceSession["kind"],
+  "board" | "note" | "remoteFile"
+>;
+
+export type SessionTabKind = SessionProtocolKind | "remoteFile";
 
 const KIND_ACCENT_HEX: Record<ConnectionKind, string> = {
   ssh: "#8b5cf6",
@@ -27,7 +32,10 @@ export function connectionKindLabel(kind: ConnectionKind): string {
   return "PG";
 }
 
-export function sessionProtocolLabel(kind: SessionProtocolKind): string {
+export function sessionProtocolLabel(kind: SessionTabKind): string {
+  if (kind === "remoteFile") {
+    return "Edit";
+  }
   if (kind === "ssh") {
     return "SSH";
   }
@@ -53,7 +61,10 @@ export function sessionProtocolAccent(kind: SessionProtocolKind): string {
   return KIND_ACCENT_HEX.mysql;
 }
 
-export function sessionProtocolBadgeClass(kind: SessionProtocolKind): string {
+export function sessionProtocolBadgeClass(kind: SessionTabKind): string {
+  if (kind === "remoteFile") {
+    return "bg-teal-500/20 text-teal-200";
+  }
   if (kind === "ssh") {
     return "bg-violet-500/20 text-violet-300";
   }
@@ -82,8 +93,11 @@ export function connectionKindBadgeClass(kind: ConnectionKind): string {
 export function resolveSessionTabAccent(
   connection: ConnectionSummary | undefined,
   groups: ConnectionGroup[],
-  sessionKind: SessionProtocolKind,
+  sessionKind: SessionTabKind,
 ): string {
+  if (sessionKind === "remoteFile") {
+    sessionKind = "ssh";
+  }
   if (connection?.groupId) {
     const group = groups.find((item) => item.id === connection.groupId);
     if (group?.color) {
@@ -108,6 +122,9 @@ export function sessionDisplayName(
     const locals = allSessions.filter((item) => item.kind === "local");
     const index = locals.findIndex((item) => item.id === session.id);
     return index <= 0 ? "Local" : `Local (${index + 1})`;
+  }
+  if (session.kind === "remoteFile") {
+    return session.title;
   }
   const base = connection?.name ?? session.title;
   const siblings = allSessions.filter(
