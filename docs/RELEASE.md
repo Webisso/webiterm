@@ -31,7 +31,11 @@ The updater downloads `latest.json` and release assets over HTTPS **without** a 
 - **Public repo** — in-app updates work for everyone.
 - **Private repo** — CI can still publish releases, but **installed apps cannot download updates** until the repository is public (or you mirror `latest.json` + `.tar.gz` on a public HTTPS host). Plan to switch [Webisso/webiterm](https://github.com/Webisso/webiterm) to public before distributing builds outside your machine.
 
-### 3. macOS “damaged” DMG / Gatekeeper
+### 3. macOS “works with this version of macOS” / won’t open
+
+Recent macOS releases can refuse to launch apps whose bundle still declares **Carbon** (`LSRequiresCarbon`). WebiTerm ships a merged `src-tauri/Info.plist` that sets `LSRequiresCarbon` to false and `NSPrincipalClass` to `NSApplication`. If an older build shows the compatibility dialog, install **v0.1.7** or newer from [Releases](https://github.com/Webisso/webiterm/releases).
+
+### 4. macOS “damaged” DMG / Gatekeeper
 
 CI builds **ad-hoc sign** the `.app` (`signingIdentity: "-"` in `tauri.conf.json`) so the bundle is sealed correctly. Without a **Developer ID** certificate, macOS may still show *“is damaged”* or block the app when the download has quarantine (`com.apple.quarantine`). Fixes:
 
