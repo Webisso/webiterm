@@ -1,6 +1,6 @@
 [package]
 name = "webiterm"
-version = "0.1.8"
+version = "0.1.9"
 description = "Local-first developer workstation"
 authors = ["WebiTerm"]
 edition = "2024"
