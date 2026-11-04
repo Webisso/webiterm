@@ -14,7 +14,7 @@ import {
   sshWrite,
 } from "../../lib/connections";
 import { attachTerminalClipboard } from "./terminalClipboard";
-import { applyTerminalInput } from "./terminalInput";
+import { applyTerminalInput, extractNanooFromScreenLine, readCursorLine } from "./terminalInput";
 import {
   readTerminalDimensions,
   scheduleTerminalGeometrySync,
@@ -142,8 +142,15 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         if (!inputEnabled || cancelled) {
           return;
         }
+        let screenCommand: string | null = null;
+        if (/[\r\n]/.test(data) && onBeforeSubmitCommandRef.current) {
+          screenCommand = extractNanooFromScreenLine(readCursorLine(term));
+        }
         const next = applyTerminalInput(lineBuffer, data);
         lineBuffer = next.line;
+        if (screenCommand) {
+          next.submitted = screenCommand;
+        }
         let swallowSubmit = false;
         if (next.submitted) {
           onLastCommandRef.current?.(next.submitted);

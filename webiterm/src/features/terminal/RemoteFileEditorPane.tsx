@@ -34,6 +34,7 @@ export function RemoteFileEditorPane({
   const [truncated, setTruncated] = useState(false);
   const [unsavedPrompt, setUnsavedPrompt] = useState<"close" | "tab" | null>(null);
   const initialRef = useRef("");
+  const gutterRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
 
@@ -161,6 +162,8 @@ export function RemoteFileEditorPane({
   }, [saveOnly]);
 
   const fileLabel = remoteFileTabTitle(remotePath);
+  const lineCount = content.split("\n").length;
+  const gutterText = Array.from({ length: lineCount }, (_, i) => i + 1).join("\n");
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-canvas text-[13px] text-ink">
@@ -210,16 +213,32 @@ export function RemoteFileEditorPane({
         {loading ? (
           <div className="flex h-full items-center justify-center text-faint">Loading file…</div>
         ) : (
-          <textarea
-            value={content}
-            onChange={(event) => {
-              setContent(event.target.value);
-              setDirty(event.target.value !== initialRef.current);
-            }}
-            spellCheck={false}
-            className="h-full w-full resize-none bg-[#0d0f12] p-3 font-mono text-[12px] leading-relaxed text-ink outline-none"
-            aria-label="Remote file editor"
-          />
+          <div className="flex h-full bg-[#0d0f12] font-mono text-[12px] leading-[18px]">
+            <div
+              ref={gutterRef}
+              aria-hidden
+              className="shrink-0 select-none overflow-hidden whitespace-pre border-r border-line py-3 pl-3 pr-2 text-right text-faint"
+              style={{ minWidth: `${String(lineCount).length + 2}ch` }}
+            >
+              {gutterText}
+            </div>
+            <textarea
+              value={content}
+              onChange={(event) => {
+                setContent(event.target.value);
+                setDirty(event.target.value !== initialRef.current);
+              }}
+              onScroll={(event) => {
+                if (gutterRef.current) {
+                  gutterRef.current.scrollTop = event.currentTarget.scrollTop;
+                }
+              }}
+              wrap="off"
+              spellCheck={false}
+              className="h-full min-w-0 flex-1 resize-none overflow-auto whitespace-pre bg-transparent p-3 font-mono text-[12px] leading-[18px] text-ink outline-none"
+              aria-label="Remote file editor"
+            />
+          </div>
         )}
       </div>
     </div>

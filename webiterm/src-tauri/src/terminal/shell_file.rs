@@ -28,7 +28,7 @@ pub struct CaptureReady<T> {
 
 pub fn build_read_script(path: &str) -> Result<String, AppError> {
     let path = validate_path(path)?;
-    let quoted = shell_quote(path);
+    let quoted = quote_path(path);
     let body = format!(
         "f={quoted}; rp=$(dirname -- \"$f\"); bn=$(basename -- \"$f\"); rp=$( (cd \"$rp\" 2>/dev/null && pwd -P) || pwd -P ); {path_printf} \"$rp/$bn\"; {begin}; if [ -d \"$f\" ]; then {end_dir}; elif [ -e \"$f\" ]; then (base64 -w0 -- \"$f\" 2>/dev/null || base64 \"$f\" 2>/dev/null || base64 < \"$f\"); printf '\\n'; {end_ok}; else {end_missing}; fi",
         path_printf = printf_path_prefix(),
@@ -47,7 +47,7 @@ pub fn build_write_script(path: &str, content: &str) -> Result<String, AppError>
             "File is too large to save from the app.".to_string(),
         ));
     }
-    let quoted = shell_quote(path);
+    let quoted = quote_path(path);
     let write_body = if content.is_empty() {
         ": > \"$f\"; status=0".to_string()
     } else {
@@ -178,6 +178,17 @@ fn validate_path(path: &str) -> Result<&str, AppError> {
     Ok(path)
 }
 
+/// Quotes a path for the shell, keeping a leading `~` / `~/` expandable via $HOME.
+fn quote_path(path: &str) -> String {
+    if path == "~" {
+        return "\"$HOME\"".to_string();
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return format!("\"$HOME\"/{}", shell_quote(rest));
+    }
+    shell_quote(path)
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -239,17 +250,42 @@ fn flatten_terminal_text(value: &str) -> String {
     let mut out = String::new();
     let mut chars = value.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            while let Some(&next) = chars.peek() {
-                chars.next();
-                if next.is_ascii_alphabetic() || next == '@' {
-                    break;
-                }
+        if ch != '\u{1b}' {
+            if ch != '\r' {
+                out.push(ch);
             }
             continue;
         }
-        if ch != '\r' {
-            out.push(ch);
+        match chars.peek().copied() {
+            // CSI: ESC [ params final-byte(0x40..=0x7e)
+            Some('[') => {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if ('\u{40}'..='\u{7e}').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            // OSC / DCS / etc.: terminated by BEL or ST (ESC \)
+            Some(']') | Some('P') | Some('X') | Some('^') | Some('_') => {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if next == '\u{7}' {
+                        break;
+                    }
+                    if next == '\u{1b}' {
+                        if chars.peek() == Some(&'\\') {
+                            chars.next();
+                        }
+                        break;
+                    }
+                }
+            }
+            // Two-byte escape (ESC c, ESC =, ...)
+            Some(_) => {
+                chars.next();
+            }
+            None => {}
         }
     }
     out
@@ -258,6 +294,12 @@ fn flatten_terminal_text(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flatten_strips_osc_st_without_eating_next_char() {
+        let raw = "\u{1b}]3008;start=x;cwd=/a\u{1b}\\WEBITERM_SHELL_DONE\r\n\u{1b}]0;t\u{7}\u{1b}[?2004hok";
+        assert_eq!(flatten_terminal_text(raw), "WEBITERM_SHELL_DONE\nok");
+    }
 
     #[test]
     fn scripts_do_not_contain_assembled_markers() {
