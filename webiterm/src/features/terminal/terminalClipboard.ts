@@ -19,21 +19,14 @@ async function writeClipboard(text: string): Promise<void> {
   document.body.removeChild(area);
 }
 
-async function readClipboard(): Promise<string> {
-  if (navigator.clipboard?.readText) {
-    return navigator.clipboard.readText();
-  }
-  return "";
-}
-
 /**
- * macOS/Tauri: ensure ⌘C / Ctrl+C copies the xterm selection instead of sending ^C,
- * and ⌘V / Ctrl+V pastes into the session.
+ * macOS/Tauri: ensure ⌘C / Ctrl+C copies the xterm selection instead of sending ^C.
+ *
+ * Paste is intentionally NOT handled here: navigator.clipboard.readText() makes WKWebView
+ * show a "Paste" confirmation bubble for content copied from other apps. Letting ⌘V reach
+ * the native paste event (handled by xterm) pastes immediately.
  */
-export function attachTerminalClipboard(
-  term: Terminal,
-  paste: (text: string) => void,
-): void {
+export function attachTerminalClipboard(term: Terminal): void {
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") {
       return true;
@@ -46,24 +39,6 @@ export function attachTerminalClipboard(
     if (key === "c" && term.hasSelection()) {
       event.preventDefault();
       void writeClipboard(term.getSelection());
-      return false;
-    }
-    if (key === "v") {
-      event.preventDefault();
-      void readClipboard().then((text) => {
-        if (text) {
-          paste(text);
-        }
-      });
-      return false;
-    }
-    if (key === "insert" && event.shiftKey) {
-      event.preventDefault();
-      void readClipboard().then((text) => {
-        if (text) {
-          paste(text);
-        }
-      });
       return false;
     }
     return true;

@@ -129,14 +129,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         void resizeTerminal(dims.cols, dims.rows);
       };
 
-      attachTerminalClipboard(term, (text) => {
-        if (!inputEnabled || cancelled) {
-          return;
-        }
-        void writeToBackend(text).catch((error) => {
-          term.writeln(`\r\n\x1b[31m${normalizeIpcError(error)}\x1b[0m`);
-        });
-      });
+      attachTerminalClipboard(term);
 
       const dataDisposable = term.onData((data) => {
         if (!inputEnabled || cancelled) {
