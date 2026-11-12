@@ -35,7 +35,6 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
           OPENSSL_STATIC: "1"
-          LIBSSH2_SYS_USE_PKG_CONFIG: "0"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -63,5 +62,14 @@ jobs:
           codesign -dv --verbose=2 "$APP" 2>&1 | tee /tmp/codesign.txt
           if grep -q 'Sealed Resources=none' /tmp/codesign.txt; then
             echo "Bundle is not properly sealed — DMG may show as damaged."
+            exit 1
+          fi
+
+      - name: Verify no Homebrew dylib dependencies
+        run: |
+          BIN=$(find webiterm/src-tauri/target -path '*/release/bundle/macos/WebiTerm.app/Contents/MacOS/webiterm' | head -1)
+          otool -L "$BIN"
+          if otool -L "$BIN" | grep -E '/opt/homebrew|/usr/local/(opt|Cellar|lib)'; then
+            echo "Binary links against non-system dylibs — it will crash on machines without Homebrew."
             exit 1
           fi
